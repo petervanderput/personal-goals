@@ -24,6 +24,12 @@ load_goals <- function(path = "goals.yml") {
   if (is.null(timezone) || !nzchar(timezone)) {
     stop("goals.yml must set a `timezone` (e.g. America/Denver).", call. = FALSE)
   }
+  # An unrecognised timezone makes R fall back to UTC with only a warning, which
+  # would silently shift every reminder by hours. Refuse to run instead.
+  if (!timezone %in% OlsonNames()) {
+    stop("goals.yml timezone '", timezone, "' is not recognised on this system.",
+         call. = FALSE)
+  }
   if (length(definitions$goals) == 0) {
     stop("goals.yml contains no goals.", call. = FALSE)
   }
