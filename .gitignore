@@ -1,0 +1,18 @@
+# Secrets — never commit
+.Renviron
+.env
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Quarto / rendered output
+/.quarto/
+*.html
+*_files/
+*.knit.md
+
+# Scratch logs
+_*.log

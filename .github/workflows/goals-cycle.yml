@@ -1,0 +1,56 @@
+name: Goal reminders and check-ins
+
+# Sends due reminders and collects Done/Missed taps in a single job.
+#
+# The schedule is limited to waking hours in UTC rather than running all day,
+# because a private repository has a monthly Actions minute allowance and an
+# overnight reminder would never be acted on anyway. 12:00-05:00 UTC covers
+# roughly 06:00-23:00 in America/Denver across both daylight and standard time.
+on:
+  schedule:
+    - cron: "*/30 12-23,0-5 * * *"
+  workflow_dispatch:
+
+# Runs commit state back to the repository, so overlapping runs must be avoided.
+concurrency:
+  group: goals-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::httr2
+            any::yaml
+
+      - name: Run reminder and check-in cycle
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: Rscript R/run_cycle.R
+
+      - name: Commit updated logs
+        run: |
+          if [ -z "$(git status --porcelain data)" ]; then
+            echo "No log changes to commit."
+            exit 0
+          fi
+          git config user.name "goal-bot"
+          git config user.email "goal-bot@users.noreply.github.com"
+          git add data
+          git commit -m "chore: record reminders and check-ins"
+          # A concurrent run may have pushed since checkout; rebase and retry once.
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"

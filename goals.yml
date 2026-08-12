@@ -1,0 +1,38 @@
+# Personal goal definitions.
+#
+# Field names follow the goal-setting literature rather than generic todo-list
+# wording, because the structure is what makes reminders effective:
+#   - outcome/measure/target: specific, measurable goals beat "do your best"
+#     (Locke & Latham's goal-setting theory)
+#   - when/where/what: an implementation intention, the strongest single
+#     predictor of follow-through (Gollwitzer & Sheeran 2006 meta-analysis)
+#   - obstacle/coping_plan: mental contrasting, i.e. the WOOP protocol
+#   - grace: a rate-based allowance, because a single missed day does not harm
+#     habit formation (Lally et al. 2010) and per-slip penalties train quitting
+#   - intrinsic: when true, no tangible reward is attached, since rewarding
+#     already-enjoyable activity erodes intrinsic motivation (Deci et al. 1999)
+
+timezone: America/Denver
+
+goals:
+  - id: example
+    title: "Example goal — edit or delete me"
+    outcome: "Replace this with a concrete, observable end state"
+    measure: "minutes of focused work"
+    target: 30
+    period: day          # day | week | month | year
+    remind_at: "08:00"   # local time, 24h
+    difficulty: 3        # 1-5 self-rated; harder goals outperform easy ones
+    deadline: 2026-12-31
+    intrinsic: false
+    implementation_intention:
+      when: "right after I pour my morning coffee"
+      where: "at my desk"
+      what: "set a 30 minute timer and start"
+    obstacle: "I open my email first and lose the morning"
+    coping_plan: "email stays closed until the timer finishes"
+    reward: "one episode of the show I'm saving, only after the timer ends"
+    stake: "$10 to a friend for every week I miss more than once"
+    grace:
+      window_days: 7
+      allowed_misses: 1
