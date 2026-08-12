@@ -26,13 +26,27 @@ goals:
     difficulty: 3
     intrinsic: false
 
+    # Each session type has its own cue, because they happen at different times
+    # and places. The cue is the part that drives follow-through, so it is
+    # attached per requirement rather than to the goal as a whole.
     requirements:
       - id: short
         label: "20-30 min session"
         sessions_per_period: 3
+        implementation_intention:
+          when: "after lunch, or as soon as I get home from work"
+          where: "the office gym or at home"
       - id: long
         label: "2 hour session"
         sessions_per_period: 1
+        by_day: Wed          # it is a club session early in the week, so it
+        implementation_intention:   # cannot be pushed to the weekend
+          when: "6-8pm"
+          where: "the boxing club"
+
+    # The if-then line appears only when both of these are set, so the obstacle
+    # sits here on its own until a coping plan is chosen.
+    obstacle: "looking after your kid or an unexpected task takes the slot"
 
     nudge:
       at: "17:00"

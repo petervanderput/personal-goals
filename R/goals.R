@@ -128,6 +128,12 @@ validate_quota_goal <- function(goal) {
     }
     requirement$sessions_per_period <- as.integer(sessions)
     requirement$label <- requirement$label %||% requirement$id
+
+    # A session that cannot happen on an arbitrary day may name the weekday it
+    # must be done by; weekday_number() raises on anything unrecognised.
+    if (!is.null(requirement$by_day)) {
+      weekday_number(requirement$by_day, goal$id)
+    }
     requirement
   })
 

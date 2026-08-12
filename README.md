@@ -88,6 +88,13 @@ Sessions are counted as distinct local dates rather than rows, so a repeated tap
 counts once. That also encodes the rule that one session of a given type counts
 once per day.
 
+Each requirement carries its own `implementation_intention`, because sessions of
+different kinds happen at different times and places, and the cue is the part
+that drives follow-through. A requirement that cannot happen on an arbitrary day
+can also name a `by_day` weekday; once that day arrives with the session still
+outstanding, a reminder goes out even if the period as a whole is still
+comfortably achievable.
+
 ## Data model
 
 Each goal carries fields drawn from the goal-setting literature, because the

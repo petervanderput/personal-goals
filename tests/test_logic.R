@@ -40,9 +40,16 @@ boxing <- list(
   period = "week",
   schedule = "quota",
   requirements = list(
-    list(id = "short", label = "20-30 min session", sessions_per_period = 3L),
-    list(id = "long", label = "2 hour session", sessions_per_period = 1L)
+    list(id = "short", label = "20-30 min session", sessions_per_period = 3L,
+         implementation_intention = list(when = "after lunch",
+                                         where = "the office gym")),
+    list(id = "long", label = "2 hour session", sessions_per_period = 1L,
+         by_day = "Wed",
+         implementation_intention = list(when = "6-8pm",
+                                         where = "the boxing club"))
   ),
+  obstacle = "an unexpected task takes the slot",
+  coping_plan = "do 20 minutes at home instead",
   nudge = list(at = "17:00", cadence = "risk_only", kickoff_on = "Mon"),
   block = list(
     periods = 8L, starts = "2026-08-17",
@@ -137,6 +144,39 @@ check("three owed with four days left is not", !is_at_risk(3L, 4L))
 check("five owed with four days left is at risk", is_at_risk(5L, 4L))
 check("nothing owed is never at risk", !is_at_risk(0L, 1L))
 
+cat("Per-requirement deadlines\n")
+long_requirement <- boxing$requirements[[2]]
+short_requirement <- boxing$requirements[[1]]
+check("monday leaves three days to wednesday",
+      days_until_requirement_deadline(long_requirement, monday) == 3)
+check("wednesday is the deadline itself",
+      days_until_requirement_deadline(long_requirement,
+                                      denver("2026-08-19 17:30:00")) == 1)
+check("thursday is past the deadline",
+      days_until_requirement_deadline(long_requirement, thursday) == 0)
+check("no deadline reads as NA",
+      is.na(days_until_requirement_deadline(short_requirement, monday)))
+
+deadline_progress <- requirement_progress(boxing, integer(),
+                                          denver("2026-08-19 17:30:00"))
+check("outstanding requirement at its deadline is urgent",
+      is_requirement_urgent(deadline_progress[[2]]))
+check("requirement without a deadline is never urgent",
+      !is_requirement_urgent(deadline_progress[[1]]))
+
+met <- requirement_progress(boxing, c(long = 1L),
+                            denver("2026-08-19 17:30:00"))
+check("a satisfied requirement is not urgent", !is_requirement_urgent(met[[2]]))
+
+cat("Intention formatting\n")
+check("joins when and where",
+      format_intention(list(when = "6-8pm", where = "the club")) ==
+        "6-8pm, the club")
+check("joins all three parts",
+      format_intention(list(when = "a", where = "b", what = "c")) == "a, b, c")
+check("no intention yields nothing", is.null(format_intention(NULL)))
+check("empty intention yields nothing", is.null(format_intention(list())))
+
 cat("Reward block\n")
 keys <- block_period_keys(boxing)
 check("block spans eight weeks", length(keys) == 8)
@@ -190,7 +230,32 @@ check("risk_only stays silent when the week is still achievable",
 
 risky <- plan_reminders(definitions, thursday, checkin_log = checkin_log_of())
 check("nudges once a skip would break the week", length(risky) == 1)
-check("risk wording", grepl("no room left to skip", risky[[1]]$text))
+check("risk wording", grepl("is out of time", risky[[1]]$text))
+
+wednesday <- denver("2026-08-19 17:30:00")
+deadline_plan <- plan_reminders(definitions, wednesday,
+                                checkin_log = checkin_log_of())
+check("a requirement deadline nudges even when the week is achievable",
+      length(deadline_plan) == 1)
+check("deadline wording names the requirement",
+      grepl("2 hour session is out of time", deadline_plan[[1]]$text))
+check("requirement line shows its deadline",
+      grepl("2 hour session: 0 of 1 \\(by Wed\\)", deadline_plan[[1]]$text))
+check("requirement line quotes its own cue",
+      grepl("6-8pm, the boxing club", deadline_plan[[1]]$text))
+check("short session quotes a different cue",
+      grepl("after lunch, the office gym", deadline_plan[[1]]$text))
+check("coping plan appears when urgent",
+      grepl("If an unexpected task takes the slot, then do 20 minutes at home",
+            deadline_plan[[1]]$text))
+
+overdue <- plan_reminders(definitions, thursday, checkin_log = checkin_log_of())
+check("passed deadline is reported as such",
+      grepl("\\(was due Wed\\)", overdue[[1]]$text))
+
+done_long <- plan_reminders(definitions, wednesday,
+                            checkin_log = checkin_log_of("long@2026-08-17"))
+check("no deadline nudge once that session is logged", length(done_long) == 0)
 
 already <- plan_reminders(definitions, monday, sent_keys = "boxing|2026-08-17",
                           checkin_log = checkin_log_of())

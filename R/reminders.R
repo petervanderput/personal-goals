@@ -66,7 +66,7 @@ plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
   counts <- if (is.null(checkin_log)) integer() else {
     session_counts(checkin_log, goal$id, key)
   }
-  progress <- requirement_progress(goal, counts)
+  progress <- requirement_progress(goal, counts, local_time)
   remaining <- total_remaining(progress)
   if (remaining == 0L) return(NULL)
 
@@ -74,8 +74,11 @@ plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
   at_risk <- is_at_risk(remaining, days_left)
   is_kickoff <- !is.null(goal$nudge$kickoff_on) &&
     local_time$wday == weekday_number(goal$nudge$kickoff_on, goal$id)
+  has_urgent <- any(vapply(progress, is_requirement_urgent, logical(1)))
 
-  if (!(goal$nudge$cadence == "daily" || at_risk || is_kickoff)) return(NULL)
+  if (!(goal$nudge$cadence == "daily" || at_risk || is_kickoff || has_urgent)) {
+    return(NULL)
+  }
 
   outstanding <- Filter(function(item) item$remaining > 0L, progress)
 
@@ -100,12 +103,8 @@ plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
 format_fixed_reminder <- function(goal) {
   lines <- c(goal$title)
 
-  intention <- goal$implementation_intention
-  if (!is.null(intention)) {
-    lines <- c(lines, "", sprintf("Your plan: %s, %s, %s",
-                                  intention$when, intention$where,
-                                  intention$what))
-  }
+  cue <- format_intention(goal$implementation_intention)
+  if (!is.null(cue)) lines <- c(lines, "", paste("Your plan:", cue))
   if (!is.null(goal$target) && !is.null(goal$measure)) {
     lines <- c(lines, sprintf("Target: %s %s this %s",
                               goal$target, goal$measure, goal$period))
@@ -120,10 +119,18 @@ format_fixed_reminder <- function(goal) {
 }
 
 #' Compose the reminder for a quota goal.
+#'
+#' Each requirement carries its own cue, because sessions of different kinds
+#' happen at different times and places, and the cue is the part that drives
+#' follow-through.
 format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff,
                                   checkin_log, local_time) {
+  urgent <- Filter(is_requirement_urgent, progress)
+
   headline <- if (is_kickoff) {
     sprintf("New %s: %s", goal$period, goal$title)
+  } else if (length(urgent) > 0) {
+    sprintf("%s: %s is out of time", goal$title, urgent[[1]]$label)
   } else if (at_risk) {
     sprintf("%s: no room left to skip", goal$title)
   } else {
@@ -132,8 +139,7 @@ format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff
   lines <- c(headline, "")
 
   for (item in progress) {
-    lines <- c(lines, sprintf("%s: %d of %d", item$label, item$logged,
-                              item$required))
+    lines <- c(lines, format_requirement_line(item))
   }
 
   lines <- c(lines, "", sprintf("%d session(s) left, %d day(s) to fit them in.",
@@ -142,20 +148,46 @@ format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff
     lines <- c(lines, "Training today is the only way to keep the week intact.")
   }
 
-  intention <- goal$implementation_intention
-  if (!is.null(intention) && (is_kickoff || at_risk)) {
-    lines <- c(lines, "", sprintf("Your plan: %s, %s, %s",
-                                  intention$when, intention$where,
-                                  intention$what))
-  }
-  if (!is.null(goal$obstacle) && !is.null(goal$coping_plan) && at_risk) {
-    lines <- c(lines, sprintf("If %s, then %s", goal$obstacle, goal$coping_plan))
+  if (!is.null(goal$obstacle) && !is.null(goal$coping_plan) &&
+      (at_risk || is_kickoff || length(urgent) > 0)) {
+    lines <- c(lines, "", sprintf("If %s, then %s", goal$obstacle,
+                                  goal$coping_plan))
   }
 
   block_line <- format_block_status(goal, checkin_log, local_time)
   if (!is.null(block_line)) lines <- c(lines, "", block_line)
 
   paste(lines, collapse = "\n")
+}
+
+#' One progress line for a requirement, with its deadline and cue.
+format_requirement_line <- function(item) {
+  line <- sprintf("%s: %d of %d", item$label, item$logged, item$required)
+
+  if (!is.null(item$by_day) && item$remaining > 0L) {
+    line <- if (!is.na(item$days_until_due) && item$days_until_due < 1L) {
+      paste0(line, " (was due ", item$by_day, ")")
+    } else {
+      paste0(line, " (by ", item$by_day, ")")
+    }
+  }
+
+  cue <- format_intention(item$intention)
+  if (!is.null(cue) && item$remaining > 0L) line <- paste0(line, " - ", cue)
+
+  line
+}
+
+#' Join the parts of an implementation intention that are present.
+#'
+#' Any of when, where and what may be omitted, so the phrase is assembled from
+#' whatever the goal actually specifies rather than printing empty fragments.
+format_intention <- function(intention) {
+  if (is.null(intention)) return(NULL)
+
+  parts <- unlist(intention[c("when", "where", "what")], use.names = FALSE)
+  if (length(parts) == 0) return(NULL)
+  paste(parts, collapse = ", ")
 }
 
 #' One-line summary of reward block standing, or NULL when there is no block.

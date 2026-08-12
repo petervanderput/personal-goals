@@ -31,8 +31,13 @@ session_counts <- function(checkin_log, goal_id, key) {
 
 #' Progress against each requirement of a quota goal.
 #'
-#' @return A list of lists with id, label, required, logged and remaining.
-requirement_progress <- function(goal, counts) {
+#' @param goal A validated goal.
+#' @param counts Session counts from `session_counts()`.
+#' @param local_time Optional current time. When supplied, requirements carrying
+#'   a `by_day` are annotated with how many days remain until that day.
+#' @return A list of lists with id, label, required, logged, remaining,
+#'   intention and days_until_due.
+requirement_progress <- function(goal, counts, local_time = NULL) {
   lapply(goal$requirements, function(requirement) {
     logged <- unname(counts[requirement$id])
     if (length(logged) == 0 || is.na(logged)) logged <- 0L
@@ -42,9 +47,40 @@ requirement_progress <- function(goal, counts) {
       label = requirement$label,
       required = requirement$sessions_per_period,
       logged = logged,
-      remaining = max(0L, requirement$sessions_per_period - logged)
+      remaining = max(0L, requirement$sessions_per_period - logged),
+      intention = requirement$implementation_intention,
+      by_day = requirement$by_day,
+      days_until_due = if (is.null(local_time)) {
+        NA_integer_
+      } else {
+        days_until_requirement_deadline(requirement, local_time, goal$id)
+      }
     )
   })
+}
+
+#' Position of a weekday within an ISO week, where Monday is 1 and Sunday is 7.
+iso_weekday_position <- function(wday) {
+  if (wday == 0L) 7L else as.integer(wday)
+}
+
+#' Days remaining until a requirement's own deadline within the current week.
+#'
+#' Some sessions cannot happen on an arbitrary day, so a requirement may name
+#' the weekday it must be done by. Returns 1 when today is the deadline, a
+#' negative or zero value when it has passed, and NA when none is set.
+days_until_requirement_deadline <- function(requirement, local_time,
+                                           goal_id = "<unknown>") {
+  if (is.null(requirement$by_day)) return(NA_integer_)
+
+  target <- iso_weekday_position(weekday_number(requirement$by_day, goal_id))
+  today <- iso_weekday_position(local_time$wday)
+  target - today + 1L
+}
+
+#' Is a requirement out of time, or down to its last day?
+is_requirement_urgent <- function(item) {
+  item$remaining > 0L && !is.na(item$days_until_due) && item$days_until_due <= 1L
 }
 
 #' Total sessions still owed across all requirements.
