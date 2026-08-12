@@ -11,7 +11,7 @@ config <- telegram_config()
 identity <- telegram_call(config, "getMe")
 cat("Bot identity: @", identity$username, " (", identity$first_name, ")\n", sep = "")
 
-send_message(
+invisible(send_message(
   config,
   text = paste(
     "Connection test from your Personal Goals project.",
@@ -22,6 +22,6 @@ send_message(
     labels   = c("Done", "Missed"),
     payloads = c("test|done", "test|missed")
   )
-)
+))
 
 cat("Test message sent to chat", config$chat_id, "\n")

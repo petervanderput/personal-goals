@@ -12,11 +12,13 @@
 - [x] Check-in collector for Done / Missed button taps
 - [x] Test suite for the pure logic (40 checks passing)
 - [x] GitHub Actions cycle workflow
-- [ ] Message the bot so Telegram permits delivery (needs the phone)
-- [ ] Confirm a real reminder arrives and a button tap is recorded
-- [ ] Create the GitHub repository and push
-- [ ] Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as Actions secrets
+- [x] Move the project out of OneDrive to avoid `.git` sync conflicts
+- [x] Message the bot so Telegram permits delivery
+- [x] Confirm a test message with buttons is delivered
+- [x] Create the GitHub repository and push `main`
+- [x] Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as Actions secrets
 - [ ] Confirm the scheduled workflow fires and commits its logs
+- [ ] Confirm a button tap is recorded back into `data/checkins.csv`
 - [ ] Replace the example goal with real goals
 
 ## Phase 2 — review and feedback
