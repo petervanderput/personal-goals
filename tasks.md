@@ -17,9 +17,18 @@
 - [x] Confirm a test message with buttons is delivered
 - [x] Create the GitHub repository and push `main`
 - [x] Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as Actions secrets
-- [ ] Confirm the scheduled workflow fires and commits its logs
-- [ ] Confirm a button tap is recorded back into `data/checkins.csv`
+- [x] Confirm a button tap is recorded into `data/checkins.csv`
+- [ ] Confirm the workflow completes in CI and commits its logs
 - [ ] Replace the example goal with real goals
+
+## Known limitations
+
+- A tap that cannot be acknowledged leaves its buttons in place, so the same
+  goal and period can be checked in twice. The log is append-only by design, so
+  the review logic in phase 2 must treat repeated entries for one goal and
+  period as a single outcome, taking the most recent.
+- Check-ins are recorded within one polling interval rather than instantly,
+  which is why acknowledgement often expires. A webhook receiver would fix both.
 
 ## Phase 2 — review and feedback
 

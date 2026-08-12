@@ -9,13 +9,6 @@
 # log they appear next to the operation that raised them.
 options(warn = 1)
 
-source("R/config.R")
-source("R/telegram.R")
-source("R/store.R")
-source("R/goals.R")
-source("R/collect_checkins.R")
-source("R/send_reminders.R")
-
 #' Run one labelled phase, reporting where a failure happened before exiting.
 #'
 #' Any partial work already written to disk is intentionally left in place: the
@@ -28,18 +21,27 @@ run_phase <- function(label, action) {
     error = function(condition) {
       cat("[failed]", label, "\n")
       cat("[error]", conditionMessage(condition), "\n")
-      calls <- sys.calls()
-      if (length(calls) > 0) {
-        cat("[where]", paste(utils::head(deparse(conditionCall(condition)), 3),
-                             collapse = " "), "\n")
-      }
       quit(status = 1)
     }
   )
 }
 
+# config.R is loaded first, and on its own, because it is the only module with
+# no package dependencies. The remaining modules call library() at load time,
+# so sourcing them before the check would raise R's own opaque error instead of
+# the explicit list of what is missing.
+source("R/config.R")
+run_phase("verify packages", function() require_packages())
+
+source("R/telegram.R")
+source("R/store.R")
+source("R/goals.R")
+source("R/collect_checkins.R")
+source("R/send_reminders.R")
+
 cat("R", paste(R.version$major, R.version$minor, sep = "."),
     "| httr2", as.character(packageVersion("httr2")),
+    "| jsonlite", as.character(packageVersion("jsonlite")),
     "| yaml", as.character(packageVersion("yaml")), "\n")
 
 config <- run_phase("load credentials", function() telegram_config())

@@ -63,6 +63,15 @@ because the structure is what makes a reminder effective:
 Reminder text quotes the implementation intention verbatim, since the if-then
 cue is what carries the behavioural effect rather than the goal title.
 
+## Requirements
+
+R with `httr2`, `jsonlite` and `yaml`. `jsonlite` is required even though httr2
+only suggests it, because every API call encodes and decodes JSON.
+
+```r
+install.packages(c("httr2", "jsonlite", "yaml"))
+```
+
 ## Setup
 
 1. Create a bot with `@BotFather` in Telegram and copy the token.

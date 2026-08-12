@@ -50,12 +50,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.rlib
-          key: rlib-${{ runner.os }}-httr2-yaml-v1
+          key: rlib-${{ runner.os }}-httr2-jsonlite-yaml-v2
 
+      # jsonlite is only a suggested dependency of httr2, but req_body_json()
+      # and resp_body_json() both require it, so every API call needs it present.
       - name: Install R packages
         run: |
           mkdir -p "$R_LIBS_USER"
-          Rscript -e 'required <- c("httr2", "yaml"); absent <- required[!required %in% rownames(installed.packages())]; if (length(absent)) install.packages(absent); invisible(lapply(required, library, character.only = TRUE)); cat("R packages ready\n")'
+          Rscript -e 'required <- c("httr2", "jsonlite", "yaml"); absent <- required[!required %in% rownames(installed.packages())]; if (length(absent)) install.packages(absent); invisible(lapply(required, library, character.only = TRUE)); cat("R packages ready\n")'
 
       - name: Run reminder and check-in cycle
         env:
