@@ -54,6 +54,9 @@ send_message <- function(config, text, buttons = NULL) {
 
 #' Build a single-row inline keyboard.
 #'
+#' Payload length is enforced by `build_callback_payload()`, which is the only
+#' place payloads are constructed.
+#'
 #' @param labels Character vector of button captions.
 #' @param payloads Character vector of callback payloads, same length as labels.
 #' @return A list shaped as Telegram's `inline_keyboard` (array of button rows).
@@ -61,11 +64,6 @@ inline_keyboard <- function(labels, payloads) {
   stopifnot(length(labels) == length(payloads), length(labels) > 0)
 
   row <- Map(function(label, payload) {
-    # Telegram rejects callback_data longer than 64 bytes.
-    if (nchar(payload, type = "bytes") > 64) {
-      stop("callback payload exceeds Telegram's 64-byte limit: ", payload,
-           call. = FALSE)
-    }
     list(text = label, callback_data = payload)
   }, labels, payloads)
 

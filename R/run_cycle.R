@@ -36,6 +36,9 @@ run_phase("verify packages", function() require_packages())
 source("R/telegram.R")
 source("R/store.R")
 source("R/goals.R")
+source("R/quota.R")
+source("R/callbacks.R")
+source("R/reminders.R")
 source("R/collect_checkins.R")
 source("R/send_reminders.R")
 
@@ -54,7 +57,10 @@ cat("[time] UTC", utc_timestamp(now), "| local",
 reminders_sent <- run_phase("send due reminders",
                             function() send_due_reminders(config, definitions, now))
 checkins_recorded <- run_phase("collect check-ins",
-                               function() collect_checkins(config, now))
+                               function() {
+                                 collect_checkins(config, definitions$timezone,
+                                                  now)
+                               })
 
 cat(sprintf("Cycle complete: %d reminder(s) sent, %d check-in(s) recorded.\n",
             reminders_sent, checkins_recorded))

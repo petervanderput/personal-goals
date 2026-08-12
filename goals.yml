@@ -2,37 +2,53 @@
 #
 # Field names follow the goal-setting literature rather than generic todo-list
 # wording, because the structure is what makes reminders effective:
-#   - outcome/measure/target: specific, measurable goals beat "do your best"
-#     (Locke & Latham's goal-setting theory)
-#   - when/where/what: an implementation intention, the strongest single
-#     predictor of follow-through (Gollwitzer & Sheeran 2006 meta-analysis)
-#   - obstacle/coping_plan: mental contrasting, i.e. the WOOP protocol
-#   - grace: a rate-based allowance, because a single missed day does not harm
-#     habit formation (Lally et al. 2010) and per-slip penalties train quitting
+#   - outcome and per-requirement counts: specific measurable goals beat "do
+#     your best" (Locke & Latham's goal-setting theory)
+#   - implementation_intention: an if-then cue of when, where and what, the
+#     strongest single predictor of follow-through (Gollwitzer & Sheeran 2006)
+#   - obstacle and coping_plan: mental contrasting, i.e. the WOOP protocol
+#   - block tiers: pre-committed outcomes, with loss framing outperforming an
+#     equivalent bonus
 #   - intrinsic: when true, no tangible reward is attached, since rewarding
 #     already-enjoyable activity erodes intrinsic motivation (Deci et al. 1999)
+#
+# schedule: quota  counts sessions across the period on any day
+# schedule: fixed  anchors a goal to a known day and time (needs remind_at)
 
 timezone: America/Denver
 
 goals:
-  - id: example
-    title: "Example goal — edit or delete me"
-    outcome: "Replace this with a concrete, observable end state"
-    measure: "minutes of focused work"
-    target: 30
-    period: day          # day | week | month | year
-    remind_at: "08:00"   # local time, 24h
-    difficulty: 3        # 1-5 self-rated; harder goals outperform easy ones
-    deadline: 2026-12-31
+  - id: boxing
+    title: "Get better and more consistent at boxing"
+    outcome: "Train four times a week, every week"
+    period: week
+    schedule: quota
+    difficulty: 3
     intrinsic: false
-    implementation_intention:
-      when: "right after I pour my morning coffee"
-      where: "at my desk"
-      what: "set a 30 minute timer and start"
-    obstacle: "I open my email first and lose the morning"
-    coping_plan: "email stays closed until the timer finishes"
-    reward: "one episode of the show I'm saving, only after the timer ends"
-    stake: "$10 to a friend for every week I miss more than once"
-    grace:
-      window_days: 7
-      allowed_misses: 1
+
+    requirements:
+      - id: short
+        label: "20-30 min session"
+        sessions_per_period: 3
+      - id: long
+        label: "2 hour session"
+        sessions_per_period: 1
+
+    nudge:
+      at: "17:00"
+      cadence: risk_only   # only on the kickoff day, or once a skip would
+      kickoff_on: Mon      # make the week impossible
+
+    # Eight weeks, judged on how many weeks fell short. Tiers must ascend, and
+    # the first one whose limit still holds is what remains achievable.
+    block:
+      periods: 8
+      starts: 2026-08-17
+      tiers:
+        - max_missed: 0
+          outcome: "Buy the $100 earphones"
+        - max_missed: 1
+          outcome: "Buy the $60 earphones"
+        - max_missed: 3
+          outcome: "Buy the $30 earphones"
+      otherwise: "Take all Seamus night shifts for one week"

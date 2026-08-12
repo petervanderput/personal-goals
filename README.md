@@ -13,22 +13,42 @@ supports inline buttons, which means the daily loop never requires opening an
 app. Low-friction logging matters because recording progress is itself one of
 the better-evidenced drivers of goal attainment.
 
+## Requirements
+
+R with `httr2`, `jsonlite` and `yaml`. `jsonlite` is required even though httr2
+only suggests it, because every API call encodes and decodes JSON.
+
+```r
+install.packages(c("httr2", "jsonlite", "yaml"))
+```
+
 ## Architecture
 
 ```
 goals.yml                  Goal definitions (hand-edited)
 data/reminders_sent.csv    Which reminders have been sent, for idempotency
-data/checkins.csv          Append-only Done/Missed log
+data/checkins.csv          Append-only log of check-ins
 data/telegram_offset.txt   Last consumed Telegram update id
-R/config.R                 Credential loading and validation
+
+R/config.R                 Credential and dependency validation
 R/telegram.R               Bot API wrapper; all HTTP lives here
-R/goals.R                  Definitions, scheduling rules, reminder text (pure)
-R/store.R                  Append-only CSV helpers
-R/send_reminders.R         Decides and sends what is due
+R/callbacks.R              Button payload encoding and decoding
+R/goals.R                  Definition loading, validation, calendar helpers
+R/quota.R                  Session counting, risk, reward block evaluation
+R/reminders.R              Decides what to say and when (pure)
+R/send_reminders.R         Performs the sends
 R/collect_checkins.R       Polls for button taps and records them
 R/run_cycle.R              Scheduler entrypoint: sends, then collects
+
+R/preview_reminders.R      Show what would be sent at any given moment
+R/discover_chat_id.R       Print chat ids that have messaged the bot
+R/inspect_updates.R        Dump the pending Telegram update queue
 tests/test_logic.R         Dependency-free tests of the pure logic
 ```
+
+Planning is separated from sending, so every timing rule is testable without
+touching the network. The current time is always passed in rather than read from
+the clock, which is what lets the tests assert behaviour on specific dates.
 
 Storage is CSV rather than a database because the data lives in git and is
 committed back by CI. Line-oriented text produces readable diffs and stays
@@ -43,34 +63,52 @@ polling interval rather than instantly. If that ever matters, the upgrade is a
 Cloudflare Worker acting as a real webhook receiver.
 
 Both the reminder log and the update offset exist to make the cycle idempotent,
-since scheduled runs can fire late or more than once.
+since scheduled runs can fire late or more than once. The workflow commits its
+logs even when the cycle fails, because a check-in is recorded before it is
+acknowledged and Telegram will not deliver the same tap twice.
+
+## Goal schedules
+
+A goal is either anchored to a day or counted across a period.
+
+`schedule: fixed` fires on a known day at `remind_at` and is checked in once per
+period as done or missed. Weekly, monthly and yearly goals take an anchor day in
+`remind_on`. Fixed cues are the better-evidenced choice for habit formation,
+since an implementation intention needs something to hang on.
+
+`schedule: quota` asks for a number of sessions per period on any day. Progress
+is a count, so reminders report what is left and how many days remain, and the
+buttons log a session per requirement. Under the default `risk_only` cadence a
+message goes out only on the kickoff day, or once the sessions still owed equal
+the days remaining and skipping would make the period impossible. That keeps
+reminders informative rather than habituating. `cadence: daily` nudges every day
+instead.
+
+Sessions are counted as distinct local dates rather than rows, so a repeated tap
+counts once. That also encodes the rule that one session of a given type counts
+once per day.
 
 ## Data model
 
-Each goal in `goals.yml` carries fields drawn from the goal-setting literature,
-because the structure is what makes a reminder effective:
+Each goal carries fields drawn from the goal-setting literature, because the
+structure is what makes a reminder effective:
 
 | Field | Purpose |
 | --- | --- |
-| `outcome`, `measure`, `target` | Specific measurable goals outperform "do your best" (Locke & Latham) |
+| `outcome`, `requirements` | Specific measurable goals outperform "do your best" (Locke & Latham) |
 | `implementation_intention` | An if-then cue: when, where, what (Gollwitzer & Sheeran 2006) |
 | `obstacle`, `coping_plan` | Mental contrasting, the WOOP protocol (Oettingen) |
 | `difficulty` | Harder goals outperform easy ones when commitment holds |
-| `grace` | A rate-based allowance; one missed day does not harm habit formation (Lally et al. 2010) |
 | `intrinsic` | When true, no tangible reward, which would erode intrinsic motivation (Deci et al. 1999) |
-| `stake` | Pre-committed loss, which outperforms an equivalent bonus |
+| `block` | Pre-committed outcomes over a run of periods, with loss framing outperforming an equivalent bonus |
 
 Reminder text quotes the implementation intention verbatim, since the if-then
 cue is what carries the behavioural effect rather than the goal title.
 
-## Requirements
-
-R with `httr2`, `jsonlite` and `yaml`. `jsonlite` is required even though httr2
-only suggests it, because every API call encodes and decodes JSON.
-
-```r
-install.packages(c("httr2", "jsonlite", "yaml"))
-```
+A `block` judges only periods that have finished, so a period in progress is
+never counted as missed. Tiers must be listed by ascending `max_missed`, and the
+first tier whose limit still holds is what remains achievable; `otherwise` is
+the outcome when none do.
 
 ## Setup
 
@@ -85,11 +123,14 @@ install.packages(c("httr2", "jsonlite", "yaml"))
 ## Usage
 
 ```sh
-Rscript tests/test_logic.R        # run the test suite
-Rscript R/discover_chat_id.R      # print chat ids that have messaged the bot
-Rscript R/test_connection.R       # send a test message with buttons
-Rscript R/run_cycle.R             # send due reminders, collect taps
+Rscript tests/test_logic.R                              # run the test suite
+Rscript R/preview_reminders.R --at "2026-08-17 17:30"   # preview, sends nothing
+Rscript R/preview_reminders.R --at "..." --send         # deliver a preview
+Rscript R/run_cycle.R                                   # send due, collect taps
+Rscript R/discover_chat_id.R                            # find your chat id
+Rscript R/inspect_updates.R                             # inspect pending updates
 ```
 
-Edit `goals.yml` to add goals. Reminder times are local to the `timezone` set at
-the top of that file.
+Edit `goals.yml` to add goals. Times are local to the `timezone` set at the top
+of that file, and an unrecognised timezone is a hard error rather than a silent
+fallback to UTC.

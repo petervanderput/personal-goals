@@ -5,8 +5,9 @@
 #' diffs and stays mergeable. A SQLite file would be an opaque binary blob
 #' rewritten in full on every check-in. Volume here is a few rows per day.
 
-REMINDER_LOG_COLUMNS <- c("goal_id", "period_key", "sent_at_utc")
-CHECKIN_LOG_COLUMNS <- c("goal_id", "period_key", "outcome", "recorded_at_utc")
+REMINDER_LOG_COLUMNS <- c("goal_id", "reminder_key", "sent_at_utc")
+CHECKIN_LOG_COLUMNS <- c("goal_id", "period_key", "requirement_id", "outcome",
+                         "local_date", "recorded_at_utc")
 
 REMINDER_LOG_PATH <- file.path("data", "reminders_sent.csv")
 CHECKIN_LOG_PATH <- file.path("data", "checkins.csv")
@@ -60,10 +61,10 @@ append_log <- function(path, columns, record) {
   invisible(row)
 }
 
-#' Composite keys of reminders already sent, as "goal_id|period_key".
+#' Composite keys of reminders already sent, as "goal_id|reminder_key".
 already_sent_keys <- function(reminder_log) {
   if (nrow(reminder_log) == 0) return(character())
-  paste(reminder_log$goal_id, reminder_log$period_key, sep = "|")
+  paste(reminder_log$goal_id, reminder_log$reminder_key, sep = "|")
 }
 
 #' Current UTC timestamp in ISO 8601, used for every recorded time.
