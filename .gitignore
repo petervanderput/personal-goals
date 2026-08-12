@@ -3,6 +3,7 @@
 .env
 
 # R
+.rlib/
 .Rproj.user/
 .Rhistory
 .RData

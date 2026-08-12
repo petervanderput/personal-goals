@@ -51,7 +51,10 @@ collect_checkins <- function(config, now = Sys.time()) {
     highest_update_id <- max(highest_update_id, update$update_id)
 
     callback <- update$callback_query
-    if (is.null(callback)) next
+    if (is.null(callback)) {
+      message("Skipping update ", update$update_id, ": not a button tap")
+      next
+    }
     checkin <- parse_callback_payload(callback$data)
     if (is.null(checkin)) next
 
@@ -61,9 +64,20 @@ collect_checkins <- function(config, now = Sys.time()) {
       outcome = checkin$outcome,
       recorded_at_utc = utc_timestamp(now)
     ))
-    acknowledge_checkin(config, callback, checkin)
     recorded <- recorded + 1L
     message("Recorded '", checkin$outcome, "' for '", checkin$goal_id, "'")
+
+    # Acknowledgement is cosmetic and can legitimately fail: Telegram expires
+    # callback query ids after roughly a minute, so a tap collected on a later
+    # polling cycle cannot be answered. The check-in is already recorded, so a
+    # failure here must not abort the run and strand the remaining updates.
+    tryCatch(
+      acknowledge_checkin(config, callback, checkin),
+      error = function(condition) {
+        warning("Could not acknowledge tap on update ", update$update_id, ": ",
+                conditionMessage(condition), call. = FALSE)
+      }
+    )
   }
 
   # Advancing past every update we saw, including ones we skipped, prevents the
