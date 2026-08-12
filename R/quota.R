@@ -49,6 +49,7 @@ requirement_progress <- function(goal, counts, local_time = NULL) {
       logged = logged,
       remaining = max(0L, requirement$sessions_per_period - logged),
       intention = requirement$implementation_intention,
+      coping_plan = requirement$coping_plan,
       by_day = requirement$by_day,
       days_until_due = if (is.null(local_time)) {
         NA_integer_

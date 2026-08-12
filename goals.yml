@@ -43,10 +43,14 @@ goals:
         implementation_intention:   # cannot be pushed to the weekend
           when: "6-8pm"
           where: "the boxing club"
+        # Shown only when this session is down to its last day, because the
+        # general plan below would wrongly shrink a 2 hour session to 20 minutes.
+        coping_plan: "do the full 2 hours at home instead of going to the club"
 
-    # The if-then line appears only when both of these are set, so the obstacle
-    # sits here on its own until a coping plan is chosen.
+    # Shrinking a session beats cancelling it, so the response to lost time is a
+    # smaller session rather than a skipped one.
     obstacle: "looking after your kid or an unexpected task takes the slot"
+    coping_plan: "do the 20 minute minimum at home rather than skipping"
 
     nudge:
       at: "17:00"

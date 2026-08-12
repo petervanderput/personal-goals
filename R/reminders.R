@@ -154,6 +154,15 @@ format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff
                                   goal$coping_plan))
   }
 
+  # A requirement whose own deadline is closing gets its specific fallback,
+  # which the general coping plan cannot express.
+  for (item in urgent) {
+    if (!is.null(item$coping_plan)) {
+      lines <- c(lines, sprintf("Fallback for %s: %s", item$label,
+                                item$coping_plan))
+    }
+  }
+
   block_line <- format_block_status(goal, checkin_log, local_time)
   if (!is.null(block_line)) lines <- c(lines, "", block_line)
 

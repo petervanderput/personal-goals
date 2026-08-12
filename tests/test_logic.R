@@ -44,7 +44,7 @@ boxing <- list(
          implementation_intention = list(when = "after lunch",
                                          where = "the office gym")),
     list(id = "long", label = "2 hour session", sessions_per_period = 1L,
-         by_day = "Wed",
+         by_day = "Wed", coping_plan = "do the full 2 hours at home",
          implementation_intention = list(when = "6-8pm",
                                          where = "the boxing club"))
   ),
@@ -248,6 +248,11 @@ check("short session quotes a different cue",
 check("coping plan appears when urgent",
       grepl("If an unexpected task takes the slot, then do 20 minutes at home",
             deadline_plan[[1]]$text))
+check("urgent requirement gets its own fallback",
+      grepl("Fallback for 2 hour session: do the full 2 hours at home",
+            deadline_plan[[1]]$text))
+check("fallback stays hidden while not urgent",
+      !grepl("Fallback for", kickoff[[1]]$text))
 
 overdue <- plan_reminders(definitions, thursday, checkin_log = checkin_log_of())
 check("passed deadline is reported as such",

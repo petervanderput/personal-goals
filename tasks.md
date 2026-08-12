@@ -19,8 +19,10 @@
 - [x] Reward blocks with ascending tiers and a fallback consequence
 - [x] Count sessions by distinct local date, making repeat taps idempotent
 - [x] Preview tool to check wording and timing without sending
-- [x] Rewrite the test suite for the quota model (111 checks)
-- [ ] Fill in the implementation intention: when, where, and the usual obstacle
+- [x] Rewrite the test suite for the quota model (120 checks)
+- [x] Per-requirement cues, since the club and home sessions differ
+- [x] Per-requirement deadlines, so the club session cannot silently expire
+- [x] Coping plans: shrink the session rather than cancel it
 - [ ] Confirm the first live kickoff nudge on Monday 17 August
 - [ ] Confirm a session tap increments the weekly count in CI
 
@@ -51,4 +53,5 @@
 ## Open questions
 
 - Whether the Seamus night-shift consequence is tracked only, or enforced by
-  telling someone
+  telling someone. Pre-committed stakes work far better when a third party holds
+  them, so a tracked-only consequence is the weakest part of the setup.
