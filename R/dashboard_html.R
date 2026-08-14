@@ -316,8 +316,11 @@ render_track <- function(nodes, columns) {
 }
 
 #' Where each reward currently stands.
+#'
+#' Includes rewards whose window has not opened yet, since what is on offer is
+#' worth seeing before the run starts, and drops only the ones already settled.
 render_commitments <- function(commitments, period) {
-  running <- Filter(function(status) status$is_active, commitments)
+  running <- Filter(function(status) !status$is_complete, commitments)
   if (length(running) == 0) return("")
 
   rows <- vapply(running, function(status) {

@@ -860,6 +860,12 @@ check("a made-up day keeps a green tick in an amber ring",
       grepl("marker good ring-makeup", page, fixed = TRUE))
 check("a miss is a red cross",
       grepl("marker bad ring-bad\">&#10007;", page, fixed = TRUE))
+check("what is on offer shows before the run has started",
+      grepl("Buy the $100 earbuds",
+            dashboard_html(dashboard_model(boxing, recovered_week,
+                                           denver("2026-08-13 20:00:00"),
+                                           list(url = "https://example.com/"))),
+            fixed = TRUE))
 check("markup in a label cannot break out",
       grepl("&lt;b&gt;", dashboard_html(
         dashboard_model(modifyList(boxing, list(title = "<b>hi</b>")),
