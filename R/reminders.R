@@ -20,7 +20,69 @@ plan_reminders <- function(definitions, local_time, sent_keys = character(),
       quota = plan_quota_reminders(goal, local_time, sent_keys, checkin_log)
     ))
   }
-  plans
+  c(plans, plan_digest(definitions, local_time, sent_keys, checkin_log))
+}
+
+# The digest is not a goal, but it is a message that must be sent once, so it
+# shares the reminder log and needs an id of its own within it.
+DIGEST_LOG_ID <- "dashboard"
+
+#' Plan the end-of-period digest carrying a link to the dashboard.
+#'
+#' Sent once per period, at the configured day and time, so it lands when the
+#' period is effectively over and the numbers on the page are final.
+plan_digest <- function(definitions, local_time, sent_keys, checkin_log) {
+  digest <- definitions$dashboard$digest
+  if (is.null(digest) || is.null(checkin_log)) return(list())
+
+  if (local_time$wday != weekday_number(digest$on_day, DIGEST_LOG_ID)) {
+    return(list())
+  }
+  if (minutes_since_midnight(local_time) <
+        parse_time_of_day(digest$at, DIGEST_LOG_ID)) {
+    return(list())
+  }
+
+  reported <- Filter(function(goal) {
+    goal$schedule == "quota" && has_started(goal, local_time)
+  }, definitions$goals)
+  if (length(reported) == 0) return(list())
+
+  reminder_key <- period_key(reported[[1]]$period, local_time)
+  if (paste(DIGEST_LOG_ID, reminder_key, sep = "|") %in% sent_keys) {
+    return(list())
+  }
+
+  list(list(
+    goal_id = DIGEST_LOG_ID,
+    reminder_key = reminder_key,
+    text = format_digest(reported, checkin_log, local_time),
+    buttons = link_keyboard("Open the dashboard", definitions$dashboard$url)
+  ))
+}
+
+#' Compose the digest: how the period closed, and where each reward stands.
+format_digest <- function(goals, checkin_log, local_time) {
+  lines <- character()
+
+  for (goal in goals) {
+    counts <- session_counts(checkin_log, goal$id,
+                            period_key(goal$period, local_time))
+    completed <- completed_sessions(goal, counts)
+    required <- required_sessions(goal)
+
+    verdict <- if (completed >= required) {
+      "a full week"
+    } else {
+      sprintf("%d short", required - completed)
+    }
+    lines <- c(lines, sprintf("%s: %d of %d sessions, %s.", goal$title,
+                              completed, required, verdict),
+               format_commitment_lines(goal, checkin_log, local_time), "")
+  }
+
+  c(lines, "The dashboard has the week-by-week detail.") |>
+    paste(collapse = "\n")
 }
 
 #' Has a goal's start date arrived?

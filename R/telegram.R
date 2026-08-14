@@ -69,3 +69,13 @@ inline_keyboard <- function(labels, payloads) {
 
   list(unname(row))
 }
+
+#' Build a single-row keyboard whose button opens a URL.
+#'
+#' A link button beats a bare URL in the message body: it is a large tap target,
+#' which is the whole point on a phone.
+link_keyboard <- function(label, url) {
+  stopifnot(nzchar(label), nzchar(url))
+
+  list(list(list(text = label, url = url)))
+}

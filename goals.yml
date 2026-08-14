@@ -20,6 +20,15 @@
 
 timezone: America/Denver
 
+# The published dashboard, rebuilt on every cycle, plus the end-of-week message
+# that carries the link. The url must be the live address of docs/index.html once
+# it is being served.
+dashboard:
+  url: "https://petervanderput.github.io/personal-goals/"
+  digest:
+    on_day: Sun
+    at: "21:00"
+
 goals:
   - id: boxing
     title: "Get better and more consistent at boxing"

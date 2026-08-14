@@ -68,17 +68,17 @@ jobs:
       # Runs even when the cycle failed. A check-in is appended to the log
       # before it is acknowledged, so a later error must not discard data that
       # Telegram will not deliver a second time.
-      - name: Commit updated logs
+      - name: Commit updated logs and dashboard
         if: always()
         run: |
-          if [ -z "$(git status --porcelain data)" ]; then
-            echo "No log changes to commit."
+          if [ -z "$(git status --porcelain data docs)" ]; then
+            echo "No log or dashboard changes to commit."
             exit 0
           fi
           git config user.name "goal-bot"
           git config user.email "goal-bot@users.noreply.github.com"
-          git add data
-          git commit -m "chore: record reminders and check-ins"
+          git add data docs
+          git commit -m "chore: record reminders, check-ins and dashboard"
           # A concurrent run may have pushed since checkout, so rebase onto the
           # remote before pushing, and retry once if the race repeats.
           for attempt in 1 2; do

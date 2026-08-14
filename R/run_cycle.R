@@ -41,6 +41,9 @@ source("R/callbacks.R")
 source("R/reminders.R")
 source("R/collect_checkins.R")
 source("R/send_reminders.R")
+source("R/dashboard_model.R")
+source("R/dashboard_html.R")
+source("R/dashboard.R")
 
 cat("R", paste(R.version$major, R.version$minor, sep = "."),
     "| httr2", as.character(packageVersion("httr2")),
@@ -61,6 +64,16 @@ checkins_recorded <- run_phase("collect check-ins",
                                  collect_checkins(config, definitions$timezone,
                                                   now)
                                })
+
+# Rebuilt after collecting, so a tap made moments ago is already on the page.
+# Rebuilt unconditionally rather than only when the log changed, because the page
+# also has to move on when a day turns over; the write itself is skipped if
+# nothing came out different.
+dashboard <- run_phase("build dashboard", function() {
+  build_dashboard(definitions, read_log(CHECKIN_LOG_PATH, CHECKIN_LOG_COLUMNS),
+                  now)
+})
+cat("[dashboard]", if (dashboard$changed) "updated" else "unchanged", "\n")
 
 cat(sprintf("Cycle complete: %d reminder(s) sent, %d check-in(s) recorded.\n",
             reminders_sent, checkins_recorded))

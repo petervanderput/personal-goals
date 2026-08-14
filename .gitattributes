@@ -1,0 +1,6 @@
+# Files written by the cycle rather than by hand. CI writes them with LF, so they
+# are pinned to LF in the working tree as well; otherwise a Windows checkout
+# converts them to CRLF and the next local build rewrites the whole file.
+docs/index.html text eol=lf
+data/*.csv text eol=lf
+data/telegram_offset.txt text eol=lf

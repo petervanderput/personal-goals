@@ -30,6 +30,8 @@ data/reminders_sent.csv    Which reminders have been sent, for idempotency
 data/checkins.csv          Append-only log of check-ins
 data/telegram_offset.txt   Last consumed Telegram update id
 
+docs/index.html            The published dashboard, rebuilt by CI
+
 R/config.R                 Credential and dependency validation
 R/telegram.R               Bot API wrapper; all HTTP lives here
 R/callbacks.R              Button payload encoding and decoding
@@ -38,11 +40,16 @@ R/quota.R                  Session counting, risk, commitment evaluation
 R/reminders.R              Decides what to say and when (pure)
 R/send_reminders.R         Performs the sends
 R/collect_checkins.R       Polls for button taps and records them
-R/run_cycle.R              Scheduler entrypoint: sends, then collects
+R/dashboard_model.R        Log to view model: day statuses, rollups, tallies
+R/dashboard_html.R         View model to a self-contained page
+R/dashboard.R              Writes the page, only when it changed
+R/run_cycle.R              Scheduler entrypoint: sends, collects, rebuilds
 
 R/preview_reminders.R      Show what would be sent at any given moment
+R/build_dashboard.R        Build the page by hand, optionally from sample data
 R/discover_chat_id.R       Print chat ids that have messaged the bot
 R/inspect_updates.R        Dump the pending Telegram update queue
+tools/sample_checkins.R    Generate a sample log to develop the page against
 tests/test_logic.R         Dependency-free tests of the pure logic
 ```
 
@@ -162,6 +169,49 @@ once none do, reminders say the reward is gone rather than continuing to dangle
 it. A week belongs to the month containing its Monday, so a week straddling two
 months is judged in exactly one of them.
 
+## Dashboard
+
+`docs/index.html` is a single self-contained page: no stylesheet, script or font
+is fetched, so it renders immediately on a phone over a slow connection. It is
+rebuilt at the end of every cycle from the check-in log and written only when the
+result differs, which keeps one commit per real change instead of one per poll.
+For that reason the page is stamped to the day rather than the minute.
+
+The layout is one narrow column, capped at 460px so a desktop looks deliberate
+without altering the phone layout, with 16px body text and a 16px form control,
+the size below which mobile browsers zoom on focus.
+
+Three horizons are shown, each as markers on an axis rather than a connected
+line, since sessions are separate events and a line between them would imply a
+trend that does not exist:
+
+| Horizon | One marker per | Bar |
+| --- | --- | --- |
+| The chosen week | day | the session scheduled that day |
+| The current month | week | the `month` commitment's `min_sessions` |
+| The whole run | week | the `range` commitment's `min_sessions` |
+
+The month and run charts take their bars from the commitments rather than
+repeating a number, so changing a reward changes the charts with it.
+
+| Marker | Meaning |
+| --- | --- |
+| Green tick | The session scheduled that day was done |
+| Green tick, amber ring | A session made up on a day it was not scheduled for |
+| Amber arrow | Scheduled here, but done on another day |
+| Red cross | Scheduled, the day has passed, never done |
+| Blue dot | Today |
+| Grey circle | Still to come |
+| Faint dot | No session scheduled, so nothing to miss |
+
+Tuesday, Thursday and Sunday carry no session, so they can never show a cross.
+The tally card counts days trained, days skipped and makeups, all derived from
+these same day statuses rather than recounted, so the card cannot disagree with
+the charts above it.
+
+A `dashboard.digest` block sends a link at the end of each period, once, through
+the same reminder log that makes everything else idempotent.
+
 ## Setup
 
 1. Create a bot with `@BotFather` in Telegram and copy the token.
@@ -178,9 +228,18 @@ months is judged in exactly one of them.
 Rscript tests/test_logic.R                              # run the test suite
 Rscript R/preview_reminders.R --at "2026-08-17 17:30"   # preview, sends nothing
 Rscript R/preview_reminders.R --at "..." --send         # deliver a preview
-Rscript R/run_cycle.R                                   # send due, collect taps
+Rscript R/run_cycle.R                                   # send due, collect, build
+Rscript R/build_dashboard.R                             # rebuild docs/index.html
 Rscript R/discover_chat_id.R                            # find your chat id
 Rscript R/inspect_updates.R                             # inspect pending updates
+```
+
+To see the page with data in it before any exists, render a sample elsewhere:
+
+```sh
+Rscript tools/sample_checkins.R _scratch/sample.csv
+Rscript R/build_dashboard.R --log _scratch/sample.csv --out _scratch/index.html \
+  --at "2026-09-10 20:00"
 ```
 
 Edit `goals.yml` to add goals. Times are local to the `timezone` set at the top

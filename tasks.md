@@ -43,8 +43,19 @@
 
 ## Phase 3 — review and feedback
 
-- [ ] Weekly review dashboard in `PersonalGoals.qmd` (`format: dashboard`)
-- [ ] Publish the dashboard to GitHub Pages and send the link on Sundays
+- [x] View model: per-day statuses, week/month/run rollups, tallies, all derived
+      from one pass so the card cannot disagree with the charts
+- [x] Mobile-first single-file page, no external stylesheet, script or font
+- [x] Three axes of markers: the chosen week by day, the month and the run by week
+- [x] Week picker covering all sixteen weeks of the run
+- [x] Skips counted only on days that carry a session, so Tuesday, Thursday and
+      Sunday can never show a cross
+- [x] Written only when the content changed, so polling does not fill the history
+- [x] Sunday 21:00 digest with a link button, once per week
+- [x] Built and committed by the cycle
+- [x] Test suite covering the model, the markup and the digest (267 checks)
+- [ ] Serve `docs/index.html` somewhere the phone can reach it, and set
+      `dashboard.url` to that address
 - [ ] End-of-window message announcing which tier was earned
 - [ ] Reminders at temporal landmarks, where motivation to restart peaks
 
@@ -72,6 +83,12 @@
 - A bad week can produce a catch-up prompt on Tuesday, Thursday and Sunday on top
   of the four session prompts. Silent while you are on track, but talkative once
   you are behind.
+- The dashboard is a static file rebuilt every polling cycle, so it can be up to
+  one interval behind a tap, and its stamp is only to the day.
+- Anywhere the page is cheap to host is also public. It carries session counts and
+  the reward wording, nothing more, but it is not private.
+- The month chart shows the current month only. Earlier months are readable one
+  week at a time through the picker but are not summarised anywhere.
 
 ## Open questions
 

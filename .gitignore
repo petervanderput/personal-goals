@@ -15,5 +15,11 @@
 *_files/
 *.knit.md
 
-# Scratch logs
+# The dashboard is generated, but it is also the published artifact, so it is the
+# one HTML file that has to be committed.
+!docs/index.html
+
+# Scratch logs and local experiments
 _*.log
+_scratch/
+_*.csv

@@ -180,11 +180,11 @@ is_at_risk <- function(remaining, days_left) {
   remaining > 0L && remaining >= days_left
 }
 
-#' Period keys covered by a commitment's window.
+#' Dates on which the periods of a commitment's window begin.
 #'
-#' Keys earlier than the goal's start date are dropped, so a commitment that
+#' Periods earlier than the goal's start date are dropped, so a commitment that
 #' spans a calendar month does not judge weeks from before the goal existed.
-commitment_period_keys <- function(goal, commitment, local_time) {
+commitment_period_starts <- function(goal, commitment, local_time) {
   window <- commitment$window
   starts <- switch(window$kind,
     range = seq(parse_date(window$from, "Window start"),
@@ -193,15 +193,35 @@ commitment_period_keys <- function(goal, commitment, local_time) {
     stop("Unsupported commitment window '", window$kind, "'.", call. = FALSE)
   )
 
-  if (!is.null(goal$starts)) {
-    starts <- starts[starts >= parse_date(goal$starts, "Goal start")]
-  }
+  if (is.null(goal$starts)) return(starts)
+  starts[starts >= parse_date(goal$starts, "Goal start")]
+}
+
+#' Period keys covered by a commitment's window.
+commitment_period_keys <- function(goal, commitment, local_time) {
+  period_keys_of(goal$period, commitment_period_starts(goal, commitment,
+                                                       local_time))
+}
+
+#' Period keys for a vector of period start dates.
+period_keys_of <- function(period, starts) {
   if (length(starts) == 0) return(character())
 
   # Indexed rather than iterated so the Date class survives into period_key().
   vapply(seq_along(starts), function(index) {
-    period_key(goal$period, as.POSIXlt(starts[index], tz = "UTC"))
+    period_key(period, as.POSIXlt(starts[index], tz = "UTC"))
   }, character(1))
+}
+
+#' The first commitment whose window is of a given kind, or NULL.
+#'
+#' The dashboard shows a chart per horizon, and each horizon is defined by the
+#' commitment it is judged against rather than by numbers repeated in the view.
+commitment_of_kind <- function(goal, kind) {
+  for (commitment in goal$commitments) {
+    if (identical(commitment$window$kind, kind)) return(commitment)
+  }
+  NULL
 }
 
 #' Mondays of the calendar month that the current week belongs to.

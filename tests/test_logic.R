@@ -10,6 +10,8 @@ source("R/callbacks.R")
 source("R/store.R")
 source("R/telegram.R")
 source("R/reminders.R")
+source("R/dashboard_model.R")
+source("R/dashboard_html.R")
 
 failures <- 0L
 
@@ -754,6 +756,169 @@ check("the earbuds run resolves to sixteen weeks",
                                     monday)) == 16)
 check("a missed session has a same-night consequence",
       !is.null(real_goal$missed_session_consequence))
+check("a dashboard is configured", !is.null(loaded$dashboard))
+check("the digest goes out on sunday evening",
+      identical(loaded$dashboard$digest$on_day, "Sun") &&
+        identical(loaded$dashboard$digest$at, "21:00"))
+
+cat("Dashboard labels\n")
+check("a week inside one month", week_label(as.Date("2026-08-17")) == "17-23 Aug")
+check("a week spanning two months",
+      week_label(as.Date("2026-08-31")) == "31 Aug - 6 Sep")
+check("weekday names ignore the locale",
+      weekday_abbreviation(as.Date("2026-08-17")) == "Mon" &&
+        weekday_abbreviation(as.Date("2026-08-23")) == "Sun")
+check("month label", month_label(as.Date("2026-09-10")) == "September 2026")
+
+cat("Dashboard day statuses\n")
+# Week 2026-W35 begins Monday 24 August. Monday done, Wednesday made up on the
+# Thursday, Friday never done, Saturday done.
+recovered_week <- rbind(
+  checkin_log_of("mon@2026-08-24", "wed@2026-08-27", "sat@2026-08-29",
+                 key = "2026-W35")
+)
+recovered <- week_model(boxing, recovered_week, as.Date("2026-08-24"),
+                        denver("2026-09-10 20:00:00"))
+statuses <- vapply(recovered$days, `[[`, character(1), "status")
+
+check("the week is keyed by its iso week", recovered$key == "2026-W35")
+check("monday is done", statuses[1] == "done")
+check("tuesday is a rest day", statuses[2] == "rest")
+check("wednesday reads as moved, not missed", statuses[3] == "moved")
+check("thursday is the makeup", statuses[4] == "makeup")
+check("friday is missed", statuses[5] == "missed")
+check("saturday is done", statuses[6] == "done")
+check("three of four sessions counted", recovered$completed == 3)
+check("one session short", recovered$remaining == 1)
+check("a finished week is short rather than owing",
+      week_remaining_words(recovered) == "1 short")
+
+# A week seen from inside it, on the Wednesday with only Monday logged: the days
+# still ahead must not read as misses.
+midweek <- week_model(boxing,
+                      checkin_log_of("mon@2026-08-24", key = "2026-W35"),
+                      as.Date("2026-08-24"), denver("2026-08-26 12:00:00"))
+midweek_statuses <- vapply(midweek$days, `[[`, character(1), "status")
+check("today is marked as today", midweek_statuses[3] == "today")
+check("a day still to come is not a miss",
+      all(midweek_statuses[5:6] == "upcoming"))
+check("the current week owes rather than falls short",
+      week_remaining_words(midweek) == "3 left")
+
+cat("Dashboard tallies\n")
+tally <- day_tally(list(recovered))
+check("days boxed counts the makeup", tally$boxed == 3)
+check("only scheduled days count as skipped", tally$skipped == 1)
+check("makeups are counted separately", tally$makeups == 1)
+
+cat("Dashboard horizons\n")
+horizon <- horizon_model(list(
+  list(is_future = FALSE, is_current = FALSE, completed = 4, required = 4,
+       key = "a", label = "a", tick = "1"),
+  list(is_future = FALSE, is_current = FALSE, completed = 2, required = 4,
+       key = "b", label = "b", tick = "8"),
+  list(is_future = FALSE, is_current = TRUE, completed = 1, required = 4,
+       key = "c", label = "c", tick = "15"),
+  list(is_future = TRUE, is_current = FALSE, completed = 0, required = 4,
+       key = "d", label = "d", tick = "22")
+), min_sessions = 3, label = "test")
+
+check("only finished weeks above the bar are met", horizon$met == 1)
+check("a finished week below the bar is short", horizon$short == 1)
+check("the current and future weeks are still to go", horizon$left == 2)
+check("the week in progress is not judged",
+      horizon$weeks[[3]]$status == "today")
+check("the horizon spells out its bar",
+      horizon_remaining_words(horizon) == "at 3+ sessions, 1 short, 2 to go")
+
+cat("Dashboard model\n")
+model <- dashboard_model(boxing, recovered_week, denver("2026-09-10 20:00:00"),
+                        list(url = "https://example.com/"))
+check("the run covers sixteen weeks", length(model$weeks) == 16)
+check("the current week is selected", model$selected_week == "2026-W37")
+check("the month holds the weeks whose monday it contains",
+      model$month$total == 4)
+check("the month is judged at four sessions", model$month$min_sessions == 4)
+check("the run is judged at three sessions", model$run$min_sessions == 3)
+check("the recovered week met the run bar",
+      model$run$weeks[[2]]$status == "done")
+check("commitments come through", length(model$commitments) == 2)
+
+cat("Dashboard rendering\n")
+page <- dashboard_html(model)
+check("it declares a phone viewport", grepl("width=device-width", page,
+                                            fixed = TRUE))
+check("it needs no network to render",
+      !grepl("<link|src=\"http", page))
+check("every week gets a panel",
+      length(gregexpr("class=\"week-panel", page)[[1]]) == 16)
+check("exactly one panel is visible",
+      length(gregexpr("class=\"week-panel\" data-week", page)[[1]]) == 1)
+check("the picker lists every week",
+      length(gregexpr("<option", page)[[1]]) == 16)
+check("a made-up day keeps a green tick in an amber ring",
+      grepl("marker good ring-makeup", page, fixed = TRUE))
+check("a miss is a red cross",
+      grepl("marker bad ring-bad\">&#10007;", page, fixed = TRUE))
+check("markup in a label cannot break out",
+      grepl("&lt;b&gt;", dashboard_html(
+        dashboard_model(modifyList(boxing, list(title = "<b>hi</b>")),
+                        recovered_week, denver("2026-09-10 20:00:00"),
+                        list(url = "https://example.com/")))))
+# Assigned rather than passed through modifyList, which leaves a list untouched
+# when the replacement is empty.
+unstaked <- boxing
+unstaked$commitments <- list()
+expect_error("a goal with no reward windows cannot be charted",
+             dashboard_model(unstaked, recovered_week,
+                             denver("2026-09-10 20:00:00")))
+
+cat("Digest planning\n")
+definitions_with_digest <- list(
+  timezone = "America/Denver", goals = list(boxing),
+  dashboard = list(url = "https://example.com/",
+                   digest = list(on_day = "Sun", at = "21:00"))
+)
+digest_at <- function(local_time, sent_keys = character()) {
+  plan_digest(definitions_with_digest, local_time, sent_keys, recovered_week)
+}
+
+check("no digest before its time",
+      length(digest_at(denver("2026-08-23 20:59:00"))) == 0)
+check("no digest on another day",
+      length(digest_at(denver("2026-08-22 21:30:00"))) == 0)
+sunday_digest <- digest_at(denver("2026-08-23 21:00:00"))
+check("the digest goes out on sunday at nine", length(sunday_digest) == 1)
+check("it is logged against the week",
+      sunday_digest[[1]]$reminder_key == "2026-W34")
+check("it carries a link to the dashboard",
+      sunday_digest[[1]]$buttons[[1]][[1]]$url == "https://example.com/")
+check("it reports the week just finished",
+      grepl("0 of 4 sessions", sunday_digest[[1]]$text, fixed = TRUE))
+check("it is sent only once",
+      length(digest_at(denver("2026-08-23 21:30:00"),
+                       sent_keys = "dashboard|2026-W34")) == 0)
+check("a goal that has not started is left out",
+      length(plan_digest(
+        list(timezone = "America/Denver",
+             goals = list(modifyList(boxing, list(starts = "2026-12-01"))),
+             dashboard = definitions_with_digest$dashboard),
+        denver("2026-08-23 21:00:00"), character(), recovered_week)) == 0)
+
+cat("Dashboard validation\n")
+expect_error("a dashboard without a url is rejected",
+             validate_dashboard(list(digest = list(on_day = "Sun",
+                                                   at = "21:00"))))
+expect_error("a url that is not https is rejected",
+             validate_dashboard(list(url = "petervanderput.github.io")))
+expect_error("a digest without a time is rejected",
+             validate_dashboard(list(url = "https://example.com/",
+                                     digest = list(on_day = "Sun"))))
+expect_error("a digest on an unknown day is rejected",
+             validate_dashboard(list(url = "https://example.com/",
+                                     digest = list(on_day = "Sonntag",
+                                                   at = "21:00"))))
+check("no dashboard configured is allowed", is.null(validate_dashboard(NULL)))
 
 cat("\n")
 if (failures > 0) {

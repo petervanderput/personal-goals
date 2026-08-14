@@ -55,7 +55,37 @@ load_goals <- function(path = "goals.yml") {
          call. = FALSE)
   }
 
-  list(timezone = timezone, goals = goals)
+  list(timezone = timezone, goals = goals,
+       dashboard = validate_dashboard(definitions$dashboard))
+}
+
+#' Validate the dashboard block, returning it unchanged.
+#'
+#' @param dashboard The `dashboard` block, or NULL when none is configured.
+validate_dashboard <- function(dashboard) {
+  if (is.null(dashboard)) return(NULL)
+
+  url <- dashboard$url
+  if (!is.character(url) || length(url) != 1L || !nzchar(url)) {
+    stop("goals.yml dashboard must set a `url` for the published page.",
+         call. = FALSE)
+  }
+  # A relative or scheme-less link is unusable inside a Telegram button, and the
+  # failure would only show up when the digest is sent a week later.
+  if (!grepl("^https://", url)) {
+    stop("goals.yml dashboard url '", url, "' must start with https://.",
+         call. = FALSE)
+  }
+
+  digest <- dashboard$digest
+  if (!is.null(digest)) {
+    if (is.null(digest$on_day) || is.null(digest$at)) {
+      stop("goals.yml dashboard digest needs both on_day and at.", call. = FALSE)
+    }
+    weekday_number(digest$on_day, "dashboard digest")
+    parse_time_of_day(digest$at, "dashboard digest")
+  }
+  dashboard
 }
 
 #' Validate one goal definition, returning it with defaults applied.

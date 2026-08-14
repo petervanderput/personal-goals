@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Get better and more consistent at boxing</title>
+<style>
+:root {
+  --bg: #0f1115; --card: #191d24; --line: #2b313b;
+  --text: #e8eaed; --muted: #9aa0a6;
+  --good: #34d399; --bad: #f87171; --makeup: #fbbf24; --now: #60a5fa;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+main { max-width: 460px; margin: 0 auto; padding: 16px 16px 40px; }
+h1 { font-size: 20px; line-height: 1.3; margin: 0 0 4px; }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em;
+     color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.stamp { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.card { background: var(--card); border: 1px solid var(--line);
+        border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.summary { display: flex; gap: 8px; text-align: center; }
+.summary > div { flex: 1; }
+.figure { font-size: 30px; font-weight: 700; line-height: 1.1; }
+.figure-label { font-size: 12px; color: var(--muted);
+                text-transform: uppercase; letter-spacing: 0.04em; }
+.good { color: var(--good); } .bad { color: var(--bad); }
+.makeup { color: var(--makeup); } .now { color: var(--now); }
+.waiting, .rest { color: var(--muted); }
+.progress { font-size: 15px; margin: 0 0 14px; }
+.progress strong { font-size: 17px; }
+.left { color: var(--muted); }
+.track { display: grid; gap: 2px 0; }
+.node { position: relative; text-align: center; padding: 14px 0 6px; }
+.node::before { content: ""; position: absolute; left: 0; right: 0;
+  top: 28px; height: 2px; background: var(--line); }
+.marker { position: relative; display: inline-flex; align-items: center;
+  justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--card); border: 2px solid var(--line);
+  font-size: 15px; line-height: 1; }
+.ring-good { border-color: var(--good); }
+.ring-bad { border-color: var(--bad); }
+.ring-makeup { border-color: var(--makeup); }
+.ring-now { border-color: var(--now); }
+.tick { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.tick-strong { color: var(--text); font-weight: 600; }
+select { width: 100%; margin-bottom: 14px; padding: 10px 12px;
+  font-size: 16px; font-family: inherit; color: var(--text);
+  background: #22272f; border: 1px solid var(--line); border-radius: 10px;
+  appearance: none; }
+.detail { list-style: none; margin: 14px 0 0; padding: 0;
+  border-top: 1px solid var(--line); }
+.detail li { display: flex; gap: 10px; align-items: baseline;
+  padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.detail .day { width: 34px; color: var(--muted); flex: none; }
+.detail .what { flex: 1; }
+.detail .state { flex: none; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.hidden { display: none; }
+.stake { padding: 12px 0; border-bottom: 1px solid var(--line);
+  font-size: 14px; }
+.stake:first-of-type { padding-top: 0; }
+.stake:last-child { border-bottom: 0; padding-bottom: 0; }
+.stake-outcome { font-size: 15px; }
+.stake-progress { color: var(--muted); margin-top: 2px; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 16px;
+  font-size: 13px; color: var(--muted); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap; }
+.legend .marker { width: 22px; height: 22px; font-size: 13px;
+  background: var(--bg); }
+</style>
+</head>
+<body>
+<main>
+<h1>Get better and more consistent at boxing</h1>
+<p class="stamp">Updated Thu 13 Aug</p>
+<section class="card summary">
+<div><div class="figure good">0</div><div class="figure-label">Boxed</div></div>
+<div><div class="figure bad">0</div><div class="figure-label">Skipped</div></div>
+<div><div class="figure makeup">0</div><div class="figure-label">Made up</div></div>
+</section>
+<section class="card">
+<h2>By week</h2>
+<select id="week-picker" aria-label="Choose a week">
+<option value="2026-W34" selected>17-23 Aug &mdash; 0 of 4</option>
+<option value="2026-W35">24-30 Aug &mdash; 0 of 4</option>
+<option value="2026-W36">31 Aug - 6 Sep &mdash; 0 of 4</option>
+<option value="2026-W37">7-13 Sep &mdash; 0 of 4</option>
+<option value="2026-W38">14-20 Sep &mdash; 0 of 4</option>
+<option value="2026-W39">21-27 Sep &mdash; 0 of 4</option>
+<option value="2026-W40">28 Sep - 4 Oct &mdash; 0 of 4</option>
+<option value="2026-W41">5-11 Oct &mdash; 0 of 4</option>
+<option value="2026-W42">12-18 Oct &mdash; 0 of 4</option>
+<option value="2026-W43">19-25 Oct &mdash; 0 of 4</option>
+<option value="2026-W44">26 Oct - 1 Nov &mdash; 0 of 4</option>
+<option value="2026-W45">2-8 Nov &mdash; 0 of 4</option>
+<option value="2026-W46">9-15 Nov &mdash; 0 of 4</option>
+<option value="2026-W47">16-22 Nov &mdash; 0 of 4</option>
+<option value="2026-W48">23-29 Nov &mdash; 0 of 4</option>
+<option value="2026-W49">30 Nov - 6 Dec &mdash; 0 of 4</option>
+</select>
+<div class="week-panel" data-week="2026-W34">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W35">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W36">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W37">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W38">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W39">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W40">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W41">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W42">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W43">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W44">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W45">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W46">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W47">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W48">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+<div class="week-panel hidden" data-week="2026-W49">
+<p class="progress"><strong>0 of 4 sessions</strong> &mdash; 4 to come</p>
+<div class="track" style="grid-template-columns:repeat(7,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Mon</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Tue</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Wed</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Thu</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Fri</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">Sat</div></div>
+<div class="node"><span class="marker rest ring-muted">&#183;</span><div class="tick">Sun</div></div>
+</div>
+<ul class="detail">
+<li><span class="day">Mon</span><span class="what">Monday club session, 2 hours</span><span class="state waiting">to come</span></li>
+<li><span class="day">Wed</span><span class="what">Wednesday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Fri</span><span class="what">Friday 30 min</span><span class="state waiting">to come</span></li>
+<li><span class="day">Sat</span><span class="what">Saturday morning session</span><span class="state waiting">to come</span></li>
+</ul>
+</div>
+</section>
+<section class="card">
+<h2>August 2026</h2>
+<p class="progress"><strong>0 of 3 weeks</strong> &mdash; at 4+ sessions, 3 to go</p>
+<div class="track" style="grid-template-columns:repeat(5,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">17</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">24</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">31</div></div>
+</div>
+</section>
+<section class="card">
+<h2>Run: 17 Aug to 6 Dec</h2>
+<p class="progress"><strong>0 of 16 weeks</strong> &mdash; at 3+ sessions, 16 to go</p>
+<div class="track" style="grid-template-columns:repeat(8,1fr)">
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">17</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">24</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">31</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">7</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">14</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">21</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">28</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">5</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">12</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">19</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">26</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">2</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">9</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">16</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">23</div></div>
+<div class="node"><span class="marker waiting ring-muted">&#9675;</span><div class="tick">30</div></div>
+</div>
+</section>
+
+<section class="legend"><span class="key"><span class="marker good ring-good">&#10003;</span> done</span><span class="key"><span class="marker good ring-makeup">&#10003;</span> made up</span><span class="key"><span class="marker makeup ring-makeup">&#8594;</span> moved</span><span class="key"><span class="marker bad ring-bad">&#10007;</span> skipped</span><span class="key"><span class="marker now ring-now">&#9679;</span> today</span><span class="key"><span class="marker waiting ring-muted">&#9675;</span> to come</span></section>
+</main>
+<script>
+(function () {
+  var picker = document.getElementById('week-picker');
+  var panels = document.querySelectorAll('.week-panel');
+  if (!picker) { return; }
+  picker.addEventListener('change', function () {
+    panels.forEach(function (panel) {
+      panel.classList.toggle('hidden',
+        panel.getAttribute('data-week') !== picker.value);
+    });
+  });
+})();
+</script>
+</body>
+</html>
