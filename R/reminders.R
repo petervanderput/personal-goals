@@ -61,9 +61,9 @@ plan_fixed_reminder <- function(goal, local_time, sent_keys) {
 
 #' Plan every message a quota goal owes today.
 #'
-#' Three kinds, in the order they occur through a day: a prompt for each session
-#' anchored to today, a late notice for an anchored session that never got
-#' logged, and a single nudge covering any sessions free to land on any day.
+#' Four kinds: a prompt for each session anchored to today, a catch-up offer on a
+#' day with no session of its own, a late notice for an anchored session that
+#' never got logged, and a single nudge covering sessions free to land on any day.
 plan_quota_reminders <- function(goal, local_time, sent_keys, checkin_log) {
   if (!has_started(goal, local_time)) return(list())
 
@@ -74,6 +74,7 @@ plan_quota_reminders <- function(goal, local_time, sent_keys, checkin_log) {
 
   c(
     plan_session_prompts(goal, local_time, sent_keys, counts, key, checkin_log),
+    plan_catchup_prompt(goal, local_time, sent_keys, counts, key, checkin_log),
     plan_missed_notices(goal, local_time, sent_keys, counts, key, checkin_log),
     plan_free_nudge(goal, local_time, sent_keys, counts, key, checkin_log)
   )
@@ -94,6 +95,40 @@ plan_session_prompts <- function(goal, local_time, sent_keys, counts, key,
                        format_session_prompt(goal, requirement, counts,
                                              checkin_log, local_time)
                      })
+}
+
+#' Offer to make up sessions whose day has already passed.
+#'
+#' Only on a day with no session of its own, since a day that has one already
+#' carries a prompt, and only while something is outstanding. Training on an
+#' unscheduled day is otherwise unloggable, which would make a missed day
+#' unrecoverable even when the time was made up.
+plan_catchup_prompt <- function(goal, local_time, sent_keys, counts, key,
+                                checkin_log) {
+  if (is.null(goal$makeup)) return(list())
+  if (length(sessions_on_day(goal, local_time)) > 0) return(list())
+  if (minutes_since_midnight(local_time) <
+        parse_time_of_day(goal$makeup$at, goal$id)) {
+    return(list())
+  }
+
+  reminder_key <- paste0(format(as.Date(local_time), "%Y-%m-%d"), ":makeup")
+  if (paste(goal$id, reminder_key, sep = "|") %in% sent_keys) return(list())
+
+  overdue <- overdue_sessions(goal, counts, local_time)
+  if (length(overdue) == 0) return(list())
+
+  list(list(
+    goal_id = goal$id,
+    reminder_key = reminder_key,
+    text = format_catchup_prompt(goal, overdue, counts, checkin_log, local_time),
+    buttons = inline_keyboard(
+      labels = vapply(overdue, `[[`, character(1), "label"),
+      payloads = vapply(overdue, function(requirement) {
+        build_callback_payload(goal$id, key, requirement$id, "session")
+      }, character(1))
+    )
+  ))
 }
 
 #' Report anchored sessions that today's cut-off passed without a check-in.
@@ -244,6 +279,39 @@ format_session_prompt <- function(goal, requirement, counts, checkin_log,
   if (!is.null(goal$missed_session_consequence)) {
     lines <- c(lines, sprintf("Skip it and: %s", goal$missed_session_consequence))
   }
+  paste(lines, collapse = "\n")
+}
+
+#' Compose the catch-up offer for sessions whose day has passed.
+format_catchup_prompt <- function(goal, overdue, counts, checkin_log,
+                                  local_time) {
+  days_left <- days_left_in_period(goal$period, local_time)
+
+  lines <- c(sprintf("Catch-up: %d session(s) missed so far this %s.",
+                     length(overdue), goal$period), "")
+  for (requirement in overdue) {
+    cue <- format_intention(requirement$implementation_intention)
+    lines <- c(lines, if (is.null(cue)) {
+      requirement$label
+    } else {
+      paste0(requirement$label, " - ", cue)
+    })
+  }
+
+  lines <- c(lines, "", format_period_standing(goal, counts),
+             sprintf("%d day(s) left. Training today counts, whichever day it %s",
+                     days_left, "was meant to be."))
+  # Saying how much is recoverable keeps the offer honest when it is not all
+  # of it.
+  if (length(overdue) > days_left) {
+    lines <- c(lines, sprintf("Only %d of them can still fit.", days_left))
+  }
+  lines <- c(lines, format_commitment_lines(goal, checkin_log, local_time))
+
+  if (!is.null(goal$coping_plan)) {
+    lines <- c(lines, "", format_coping(goal$obstacle, goal$coping_plan))
+  }
+  lines <- c(lines, "", "Tap what you trained.")
   paste(lines, collapse = "\n")
 }
 

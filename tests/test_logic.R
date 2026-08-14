@@ -79,6 +79,7 @@ boxing <- list(
   ),
   obstacle = "an unexpected task takes the slot",
   coping_plan = "do 20 minutes at home instead",
+  makeup = list(at = "17:00"),
   missed_notice_at = "21:30",
   missed_session_consequence = "put your son back to sleep after every wake-up",
   commitments = list(earbuds_commitment, baking_commitment)
@@ -201,6 +202,17 @@ check("free sessions are never anchored to a day",
 
 check("three sessions still to come after monday",
       remaining_scheduled_sessions(boxing, integer(), monday) == 3)
+check("nothing is overdue on the first day",
+      length(overdue_sessions(boxing, integer(), monday)) == 0)
+check("monday is overdue by tuesday",
+      identical(vapply(overdue_sessions(boxing, integer(),
+                                        denver("2026-08-18 17:30:00")),
+                       `[[`, character(1), "id"), "mon"))
+check("a logged session is never overdue",
+      length(overdue_sessions(boxing, c(mon = 1L),
+                              denver("2026-08-18 17:30:00"))) == 0)
+check("thursday counts both monday and wednesday as overdue",
+      length(overdue_sessions(boxing, integer(), thursday)) == 2)
 check("today's own session is not counted as still to come",
       remaining_scheduled_sessions(boxing, integer(), wednesday) == 2)
 check("nothing left after saturday",
@@ -326,8 +338,9 @@ check("nothing before the reminder time",
       length(plan_for(boxing, denver("2026-08-17 08:00:00"))) == 0)
 check("nothing before the goal starts",
       length(plan_for(boxing, denver("2026-08-10 17:30:00"))) == 0)
-check("no session anchored to tuesday",
-      length(plan_for(boxing, denver("2026-08-18 17:30:00"))) == 0)
+check("no session prompt on a day with nothing anchored to it",
+      length(plan_for(boxing, denver("2026-08-18 17:30:00"),
+                      checkin_log = checkin_log_of("mon@2026-08-17"))) == 0)
 
 prompt <- plan_for(boxing, monday)
 check("monday prompts once", length(prompt) == 1)
@@ -368,6 +381,50 @@ check("wednesday counts monday already done",
 check("a session without its own plan falls back to the goal's",
       grepl("then do 20 minutes at home instead",
             plan_for(boxing, denver("2026-08-21 17:30:00"))[[1]]$text))
+
+cat("Catch-up prompts\n")
+tuesday <- denver("2026-08-18 17:30:00")
+check("nothing to catch up on when monday was done",
+      length(plan_for(boxing, tuesday,
+                      checkin_log = checkin_log_of("mon@2026-08-17"))) == 0)
+
+catchup <- plan_for(boxing, tuesday)
+check("a passed session is offered on the next free day", length(catchup) == 1)
+check("the catch-up has its own key",
+      catchup[[1]]$reminder_key == "2026-08-18:makeup")
+check("it counts what was missed",
+      grepl("Catch-up: 1 session\\(s\\) missed so far this week",
+            catchup[[1]]$text))
+check("it lists the session and its cue",
+      grepl("Monday club session - 6-8pm, the boxing club",
+            catchup[[1]]$text))
+check("it says today's training still counts",
+      grepl("6 day\\(s\\) left. Training today counts", catchup[[1]]$text))
+check("it offers a button per missed session",
+      length(catchup[[1]]$buttons[[1]]) == 1)
+check("no catch-up before its time",
+      length(plan_for(boxing, denver("2026-08-18 16:00:00"))) == 0)
+check("the catch-up is sent once a day",
+      length(plan_for(boxing, tuesday,
+                      sent_keys = "boxing|2026-08-18:makeup")) == 0)
+
+# Wednesday has a session of its own, so the day already carries a prompt.
+wednesday_only <- plan_for(boxing, wednesday)
+check("a day with its own session does not also offer a catch-up",
+      length(wednesday_only) == 1)
+check("that message is the session prompt",
+      wednesday_only[[1]]$reminder_key == "2026-08-19:wed")
+
+sunday_catchup <- plan_for(boxing, sunday,
+                           checkin_log = checkin_log_of("mon@2026-08-17"))
+check("the last day still offers a catch-up", length(sunday_catchup) == 1)
+check("it admits how little can still fit",
+      grepl("Only 1 of them can still fit", sunday_catchup[[1]]$text))
+
+no_makeup <- boxing
+no_makeup$makeup <- NULL
+check("no catch-up when the goal does not allow one",
+      length(plan_for(no_makeup, tuesday)) == 0)
 
 cat("Missed-session notices\n")
 sent_prompt <- "boxing|2026-08-17:mon"
@@ -564,6 +621,16 @@ expect_error("rejects an unparseable start date",
 expect_error("a missed-session notice needs a consequence",
              validate_goal(modifyList(
                boxing, list(missed_session_consequence = NULL))))
+timeless_makeup <- boxing
+timeless_makeup$makeup <- list()
+expect_error("makeups need a prompt time", validate_goal(timeless_makeup))
+expect_error("makeups need a session anchored to a day",
+             validate_goal(list(id = "ok", title = "t", period = "week",
+                                schedule = "quota",
+                                nudge = list(at = "17:00"),
+                                makeup = list(at = "17:00"),
+                                requirements = list(
+                                  list(id = "a", sessions_per_period = 1)))))
 
 check("the live boxing shape validates", is.list(validate_goal(boxing)))
 
@@ -677,6 +744,10 @@ check("every session is anchored to a weekday",
 check("the anchored days are mon, wed, fri and sat",
       identical(vapply(real_goal$requirements, `[[`, character(1), "on_day"),
                 c("Mon", "Wed", "Fri", "Sat")))
+check("the after-work sessions prompt at 17:00",
+      identical(vapply(real_goal$requirements[2:3], `[[`, character(1),
+                       "remind_at"), c("17:00", "17:00")))
+check("missed sessions can be made up", !is.null(real_goal$makeup))
 check("two commitments are configured", length(real_goal$commitments) == 2)
 check("the earbuds run resolves to sixteen weeks",
       length(commitment_period_keys(real_goal, real_goal$commitments[[1]],

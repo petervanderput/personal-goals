@@ -179,6 +179,24 @@ validate_quota_goal <- function(goal) {
     stop("Goal '", goal$id, "' has duplicate requirement ids.", call. = FALSE)
   }
 
+  # Catching up only means something for sessions tied to a day, since a free
+  # session can already be logged whenever it happens.
+  if (!is.null(goal$makeup)) {
+    if (is.null(goal$makeup$at)) {
+      stop("Goal '", goal$id, "' allows makeups and must give makeup.at.",
+           call. = FALSE)
+    }
+    parse_time_of_day(goal$makeup$at, goal$id)
+
+    anchored <- vapply(goal$requirements, function(requirement) {
+      !is.null(requirement$on_day)
+    }, logical(1))
+    if (!any(anchored)) {
+      stop("Goal '", goal$id, "' allows makeups but has no session anchored to ",
+           "a day to make up.", call. = FALSE)
+    }
+  }
+
   # Every anchored session brings its own reminder time, so a goal-level nudge is
   # only needed when some session can land on any day.
   has_free_sessions <- any(vapply(goal$requirements, function(requirement) {

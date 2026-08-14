@@ -37,9 +37,9 @@
 - [x] Same-night notice when an anchored session goes unlogged, carrying a button
       to claim training that was forgotten
 - [x] Say when a reward is gone rather than continuing to promise it
-- [x] Test suite for the anchored model (186 checks)
-- [ ] Confirm the Wednesday and Friday prompt times against the actual end of the
-      workday
+- [x] Catch-up prompts on Tuesday, Thursday and Sunday, so a missed session can be
+      made up on a day that has none of its own
+- [x] Test suite for the anchored model (211 checks)
 
 ## Phase 3 — review and feedback
 
@@ -64,17 +64,17 @@
   and the review logic should take the most recent.
 - Check-ins are recorded within one polling interval rather than instantly, which
   is why acknowledgement often expires.
-- Training on a day nothing is scheduled cannot be logged, because the buttons
-  only exist on that day's prompt. Makeup sessions therefore do not count.
+- A makeup is logged against the session it replaces, so the count is right but
+  the record does not distinguish a Thursday makeup from the Wednesday session it
+  stood in for.
 - The missed-session notice fires at a fixed time, so a session that runs late
   and is logged afterwards still triggers the notice.
+- A bad week can produce a catch-up prompt on Tuesday, Thursday and Sunday on top
+  of the four session prompts. Silent while you are on track, but talkative once
+  you are behind.
 
 ## Open questions
 
 - Whether the night-shift consequence is tracked only, or enforced by telling
   someone. Pre-committed stakes work far better when a third party holds them, so
   a tracked-only consequence is the weakest part of the setup.
-- Whether the monthly baking window should be the calendar month (as built) or a
-  rolling four weeks.
-- Whether the week beginning Monday 7 December counts toward the earbuds run, or
-  whether the run ends with the week before it (as built).

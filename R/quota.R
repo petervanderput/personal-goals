@@ -118,15 +118,32 @@ sessions_on_day <- function(goal, local_time) {
 #'
 #' Used to say whether a weekly target is still reachable after a miss.
 remaining_scheduled_sessions <- function(goal, counts, local_time) {
+  length(anchored_sessions(goal, counts, local_time, when = "later"))
+}
+
+#' Anchored sessions whose day has passed without being logged.
+#'
+#' These are what a catch-up prompt offers, since a session that has not come
+#' round yet will get a prompt of its own on its day.
+overdue_sessions <- function(goal, counts, local_time) {
+  anchored_sessions(goal, counts, local_time, when = "earlier")
+}
+
+#' Outstanding anchored sessions, either side of today.
+#'
+#' @param when Either "earlier" or "later", relative to today's weekday.
+anchored_sessions <- function(goal, counts, local_time, when) {
   today <- iso_weekday_position(local_time$wday)
 
-  sum(vapply(goal$requirements, function(requirement) {
-    if (is.null(requirement$on_day)) return(0L)
+  Filter(function(requirement) {
+    if (is.null(requirement$on_day)) return(FALSE)
+    if (logged_for_requirement(requirement, counts) >=
+          requirement$sessions_per_period) {
+      return(FALSE)
+    }
     position <- iso_weekday_position(weekday_number(requirement$on_day, goal$id))
-    outstanding <- logged_for_requirement(requirement, counts) <
-      requirement$sessions_per_period
-    if (position > today && outstanding) 1L else 0L
-  }, integer(1)))
+    if (when == "earlier") position < today else position > today
+  }, goal$requirements)
 }
 
 #' Total sessions still owed across all requirements.

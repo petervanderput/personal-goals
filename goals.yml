@@ -50,7 +50,7 @@ goals:
         label: "Wednesday 30 min"
         sessions_per_period: 1
         on_day: Wed
-        remind_at: "16:45"
+        remind_at: "17:00"
         implementation_intention:
           when: "immediately after work"
           where: "the office gym or at home"
@@ -58,7 +58,7 @@ goals:
         label: "Friday 30 min"
         sessions_per_period: 1
         on_day: Fri
-        remind_at: "16:45"
+        remind_at: "17:00"
         implementation_intention:
           when: "immediately after work"
           where: "the office gym or at home"
@@ -75,6 +75,12 @@ goals:
     # smaller session rather than a skipped one.
     obstacle: "looking after your son or an unexpected task takes the slot"
     coping_plan: "do the 20 minute minimum at home rather than skipping"
+
+    # On Tuesday, Thursday and Sunday there is no session of your own, so if an
+    # earlier one was missed the day is offered as a chance to make it up. Only
+    # sent while something is actually outstanding.
+    makeup:
+      at: "17:00"
 
     # Checked late enough that a session done that evening has been logged, and
     # early enough that the consequence still applies to the night ahead.

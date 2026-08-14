@@ -103,12 +103,19 @@ nudge even when the period as a whole is still comfortably achievable.
 A goal can mix both styles. Anchored sessions get their own prompts and the
 nudge speaks only for the rest.
 
-### Missed sessions
+### Missed sessions and catch-ups
 
 When a goal sets `missed_notice_at` and `missed_session_consequence`, any
 anchored session still unlogged at that time gets a notice naming the
 consequence for that night. The notice carries a logging button too, so training
 that went unrecorded can still be claimed.
+
+`makeup.at` turns a day with no session of its own into a chance to recover one.
+On such a day, if an earlier session is still outstanding, a catch-up prompt
+offers a button per missed session, so training on an unscheduled day counts
+toward the period. Without it a missed day would be unrecoverable even when the
+time was made up. The prompt is sent only while something is outstanding, and it
+says how many of the missed sessions the remaining days can still absorb.
 
 Sessions are counted as distinct local dates rather than rows, so a repeated tap
 counts once, and counts are capped per requirement. That encodes the rule that
