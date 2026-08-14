@@ -54,8 +54,8 @@
 - [x] Sunday 21:00 digest with a link button, once per week
 - [x] Built and committed by the cycle
 - [x] Test suite covering the model, the markup and the digest (267 checks)
-- [ ] Serve `docs/index.html` somewhere the phone can reach it, and set
-      `dashboard.url` to that address
+- [x] Published on GitHub Pages from `main` at `/docs`, which meant making the
+      repository public; history was audited for the bot token first
 - [ ] End-of-window message announcing which tier was earned
 - [ ] Reminders at temporal landmarks, where motivation to restart peaks
 
@@ -85,8 +85,10 @@
   you are behind.
 - The dashboard is a static file rebuilt every polling cycle, so it can be up to
   one interval behind a tap, and its stamp is only to the day.
-- Anywhere the page is cheap to host is also public. It carries session counts and
-  the reward wording, nothing more, but it is not private.
+- The repository is public so that Pages can serve the dashboard for free, which
+  makes the check-in log and the dashboard readable by anyone. Credentials are
+  Actions secrets and were never committed, so nothing sensitive is exposed, but
+  the training record is not private.
 - The month chart shows the current month only. Earlier months are readable one
   week at a time through the picker but are not summarised anywhere.
 

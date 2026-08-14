@@ -171,6 +171,11 @@ months is judged in exactly one of them.
 
 ## Dashboard
 
+Live at **https://petervanderput.github.io/personal-goals/**, served by GitHub
+Pages from `main` at `/docs`. Pages does not serve private repositories on the
+free plan, so this repository is public; the credentials live in Actions secrets
+and have never been committed, but the check-in log is readable by anyone.
+
 `docs/index.html` is a single self-contained page: no stylesheet, script or font
 is fetched, so it renders immediately on a phone over a slow connection. It is
 rebuilt at the end of every cycle from the check-in log and written only when the
