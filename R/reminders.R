@@ -15,26 +15,37 @@ plan_reminders <- function(definitions, local_time, sent_keys = character(),
                            checkin_log = NULL) {
   plans <- list()
   for (goal in definitions$goals) {
-    plan <- switch(goal$schedule,
+    plans <- c(plans, switch(goal$schedule,
       fixed = plan_fixed_reminder(goal, local_time, sent_keys),
-      quota = plan_quota_reminder(goal, local_time, sent_keys, checkin_log)
-    )
-    if (!is.null(plan)) plans[[length(plans) + 1L]] <- plan
+      quota = plan_quota_reminders(goal, local_time, sent_keys, checkin_log)
+    ))
   }
   plans
 }
 
+#' Has a goal's start date arrived?
+#'
+#' Goals may be configured ahead of time, and nudging before the start date would
+#' log periods the goal was never meant to cover.
+has_started <- function(goal, local_time) {
+  if (is.null(goal$starts)) return(TRUE)
+  as.Date(local_time) >= parse_date(goal$starts, "Goal start")
+}
+
 #' Plan the reminder for a goal anchored to a day and time.
+#'
+#' @return A list of zero or one plan.
 plan_fixed_reminder <- function(goal, local_time, sent_keys) {
-  if (!is_scheduled_today(goal, local_time)) return(NULL)
+  if (!has_started(goal, local_time)) return(list())
+  if (!is_scheduled_today(goal, local_time)) return(list())
   if (minutes_since_midnight(local_time) < parse_time_of_day(goal$remind_at)) {
-    return(NULL)
+    return(list())
   }
 
   key <- period_key(goal$period, local_time)
-  if (paste(goal$id, key, sep = "|") %in% sent_keys) return(NULL)
+  if (paste(goal$id, key, sep = "|") %in% sent_keys) return(list())
 
-  list(
+  list(list(
     goal_id = goal$id,
     reminder_key = key,
     text = format_fixed_reminder(goal),
@@ -45,30 +56,124 @@ plan_fixed_reminder <- function(goal, local_time, sent_keys) {
         build_callback_payload(goal$id, key, NO_REQUIREMENT, "missed")
       )
     )
-  )
+  ))
 }
 
-#' Plan the reminder for a day-agnostic quota goal.
+#' Plan every message a quota goal owes today.
 #'
-#' At most one message per day, because the decision of whether to nudge is a
-#' daily one. Under the default `risk_only` cadence a message is sent only on
-#' the kickoff day or once skipping a day would make the period impossible,
-#' which keeps reminders informative instead of habituating.
-plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
-  if (minutes_since_midnight(local_time) < parse_time_of_day(goal$nudge$at)) {
-    return(NULL)
-  }
-
-  reminder_key <- format(as.Date(local_time), "%Y-%m-%d")
-  if (paste(goal$id, reminder_key, sep = "|") %in% sent_keys) return(NULL)
+#' Three kinds, in the order they occur through a day: a prompt for each session
+#' anchored to today, a late notice for an anchored session that never got
+#' logged, and a single nudge covering any sessions free to land on any day.
+plan_quota_reminders <- function(goal, local_time, sent_keys, checkin_log) {
+  if (!has_started(goal, local_time)) return(list())
 
   key <- period_key(goal$period, local_time)
   counts <- if (is.null(checkin_log)) integer() else {
     session_counts(checkin_log, goal$id, key)
   }
-  progress <- requirement_progress(goal, counts, local_time)
+
+  c(
+    plan_session_prompts(goal, local_time, sent_keys, counts, key, checkin_log),
+    plan_missed_notices(goal, local_time, sent_keys, counts, key, checkin_log),
+    plan_free_nudge(goal, local_time, sent_keys, counts, key, checkin_log)
+  )
+}
+
+#' Prompt each session anchored to today, once its reminder time has passed.
+plan_session_prompts <- function(goal, local_time, sent_keys, counts, key,
+                                 checkin_log) {
+  due <- Filter(function(requirement) {
+    minutes_since_midnight(local_time) >=
+      parse_time_of_day(requirement$remind_at, goal$id) &&
+      logged_for_requirement(requirement, counts) <
+        requirement$sessions_per_period
+  }, sessions_on_day(goal, local_time))
+
+  build_session_plans(goal, due, local_time, sent_keys, key, suffix = NULL,
+                     text_of = function(requirement) {
+                       format_session_prompt(goal, requirement, counts,
+                                             checkin_log, local_time)
+                     })
+}
+
+#' Report anchored sessions that today's cut-off passed without a check-in.
+#'
+#' The consequence lands the same night, so the notice has to arrive before bed
+#' rather than at the end of the week.
+plan_missed_notices <- function(goal, local_time, sent_keys, counts, key,
+                                checkin_log) {
+  if (is.null(goal$missed_notice_at)) return(list())
+  if (minutes_since_midnight(local_time) <
+        parse_time_of_day(goal$missed_notice_at, goal$id)) {
+    return(list())
+  }
+
+  missed <- Filter(function(requirement) {
+    logged_for_requirement(requirement, counts) <
+      requirement$sessions_per_period
+  }, sessions_on_day(goal, local_time))
+
+  build_session_plans(goal, missed, local_time, sent_keys, key,
+                      suffix = "missed",
+                      text_of = function(requirement) {
+                        format_missed_notice(goal, requirement, counts,
+                                             checkin_log, local_time)
+                      })
+}
+
+#' Turn a set of requirements into per-session plans with a logging button.
+#'
+#' Keys are scoped by date and requirement so two sessions on one day, or a
+#' prompt and its later missed notice, never collide in the sent log.
+build_session_plans <- function(goal, requirements, local_time, sent_keys, key,
+                                suffix, text_of) {
+  today <- format(as.Date(local_time), "%Y-%m-%d")
+
+  plans <- lapply(requirements, function(requirement) {
+    reminder_key <- paste(c(today, requirement$id, suffix), collapse = ":")
+    if (paste(goal$id, reminder_key, sep = "|") %in% sent_keys) return(NULL)
+
+    list(
+      goal_id = goal$id,
+      reminder_key = reminder_key,
+      text = text_of(requirement),
+      buttons = inline_keyboard(
+        labels = if (is.null(suffix)) "Done" else "I did train",
+        payloads = build_callback_payload(goal$id, key, requirement$id,
+                                         "session")
+      )
+    )
+  })
+  Filter(Negate(is.null), plans)
+}
+
+#' Plan the single daily nudge for sessions not tied to a weekday.
+#'
+#' Under the default `risk_only` cadence a message is sent only on the kickoff
+#' day or once skipping a day would make the period impossible, which keeps
+#' reminders informative instead of habituating.
+plan_free_nudge <- function(goal, local_time, sent_keys, counts, key,
+                            checkin_log) {
+  if (is.null(goal$nudge)) return(list())
+  if (minutes_since_midnight(local_time) <
+        parse_time_of_day(goal$nudge$at, goal$id)) {
+    return(list())
+  }
+
+  reminder_key <- format(as.Date(local_time), "%Y-%m-%d")
+  if (paste(goal$id, reminder_key, sep = "|") %in% sent_keys) return(list())
+
+  # Anchored sessions have their own prompts, so the nudge speaks only for the
+  # ones that still need a day chosen for them.
+  free_only <- goal
+  free_only$requirements <- Filter(function(requirement) {
+    is.null(requirement$on_day)
+  }, goal$requirements)
+  if (length(free_only$requirements) == 0) return(list())
+
+  progress <- requirement_progress(free_only, counts, local_time)
   remaining <- total_remaining(progress)
-  if (remaining == 0L) return(NULL)
+  if (remaining == 0L) return(list())
 
   days_left <- days_left_in_period(goal$period, local_time)
   at_risk <- is_at_risk(remaining, days_left)
@@ -77,12 +182,12 @@ plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
   has_urgent <- any(vapply(progress, is_requirement_urgent, logical(1)))
 
   if (!(goal$nudge$cadence == "daily" || at_risk || is_kickoff || has_urgent)) {
-    return(NULL)
+    return(list())
   }
 
   outstanding <- Filter(function(item) item$remaining > 0L, progress)
 
-  list(
+  list(list(
     goal_id = goal$id,
     reminder_key = reminder_key,
     text = format_quota_reminder(goal, progress, days_left, at_risk, is_kickoff,
@@ -93,7 +198,7 @@ plan_quota_reminder <- function(goal, local_time, sent_keys, checkin_log) {
         build_callback_payload(goal$id, key, item$id, "session")
       }, character(1))
     )
-  )
+  ))
 }
 
 #' Compose the reminder for a fixed goal.
@@ -118,11 +223,46 @@ format_fixed_reminder <- function(goal) {
   paste(lines, collapse = "\n")
 }
 
-#' Compose the reminder for a quota goal.
+#' Compose the prompt for one anchored session.
 #'
-#' Each requirement carries its own cue, because sessions of different kinds
-#' happen at different times and places, and the cue is the part that drives
-#' follow-through.
+#' Leads with this session's own cue, because the specific when and where is what
+#' drives follow-through, and follows with the standings the session feeds into.
+format_session_prompt <- function(goal, requirement, counts, checkin_log,
+                                  local_time) {
+  lines <- c(sprintf("Today: %s", requirement$label))
+
+  cue <- format_intention(requirement$implementation_intention)
+  if (!is.null(cue)) lines <- c(lines, cue)
+
+  lines <- c(lines, "", format_period_standing(goal, counts),
+             format_commitment_lines(goal, checkin_log, local_time))
+
+  coping <- requirement$coping_plan %||% goal$coping_plan
+  if (!is.null(coping)) {
+    lines <- c(lines, "", format_coping(goal$obstacle, coping))
+  }
+  if (!is.null(goal$missed_session_consequence)) {
+    lines <- c(lines, sprintf("Skip it and: %s", goal$missed_session_consequence))
+  }
+  paste(lines, collapse = "\n")
+}
+
+#' Compose the late notice for an anchored session that was not logged.
+format_missed_notice <- function(goal, requirement, counts, checkin_log,
+                                 local_time) {
+  still_to_come <- remaining_scheduled_sessions(goal, counts, local_time)
+
+  lines <- c(sprintf("Missed: %s", requirement$label), "",
+             sprintf("Tonight: %s", goal$missed_session_consequence), "",
+             format_period_standing(goal, counts),
+             sprintf("%d session(s) still scheduled this %s.", still_to_come,
+                     goal$period),
+             format_commitment_lines(goal, checkin_log, local_time),
+             "", "Trained and forgot to log it? Tap below.")
+  paste(lines, collapse = "\n")
+}
+
+#' Compose the nudge for sessions that can land on any day.
 format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff,
                                   checkin_log, local_time) {
   urgent <- Filter(is_requirement_urgent, progress)
@@ -148,10 +288,9 @@ format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff
     lines <- c(lines, "Training today is the only way to keep the week intact.")
   }
 
-  if (!is.null(goal$obstacle) && !is.null(goal$coping_plan) &&
+  if (!is.null(goal$coping_plan) &&
       (at_risk || is_kickoff || length(urgent) > 0)) {
-    lines <- c(lines, "", sprintf("If %s, then %s", goal$obstacle,
-                                  goal$coping_plan))
+    lines <- c(lines, "", format_coping(goal$obstacle, goal$coping_plan))
   }
 
   # A requirement whose own deadline is closing gets its specific fallback,
@@ -163,21 +302,32 @@ format_quota_reminder <- function(goal, progress, days_left, at_risk, is_kickoff
     }
   }
 
-  block_line <- format_block_status(goal, checkin_log, local_time)
-  if (!is.null(block_line)) lines <- c(lines, "", block_line)
-
+  lines <- c(lines, "", format_commitment_lines(goal, checkin_log, local_time))
   paste(lines, collapse = "\n")
+}
+
+#' Sessions done against sessions asked for, in the current period.
+format_period_standing <- function(goal, counts) {
+  sprintf("This %s: %d of %d sessions.", goal$period,
+          completed_sessions(goal, counts), required_sessions(goal))
+}
+
+#' Phrase a coping plan as an if-then when an obstacle is named.
+format_coping <- function(obstacle, coping_plan) {
+  if (is.null(obstacle)) return(sprintf("If it slips: %s", coping_plan))
+  sprintf("If %s, then %s", obstacle, coping_plan)
 }
 
 #' One progress line for a requirement, with its deadline and cue.
 format_requirement_line <- function(item) {
   line <- sprintf("%s: %d of %d", item$label, item$logged, item$required)
 
-  if (!is.null(item$by_day) && item$remaining > 0L) {
+  deadline <- item$on_day %||% item$by_day
+  if (!is.null(deadline) && item$remaining > 0L) {
     line <- if (!is.na(item$days_until_due) && item$days_until_due < 1L) {
-      paste0(line, " (was due ", item$by_day, ")")
+      paste0(line, " (was due ", deadline, ")")
     } else {
-      paste0(line, " (by ", item$by_day, ")")
+      paste0(line, " (by ", deadline, ")")
     }
   }
 
@@ -199,13 +349,22 @@ format_intention <- function(intention) {
   paste(parts, collapse = ", ")
 }
 
-#' One-line summary of reward block standing, or NULL when there is no block.
-format_block_status <- function(goal, checkin_log, local_time) {
-  if (is.null(checkin_log)) return(NULL)
-  status <- evaluate_block(goal, checkin_log, local_time)
-  if (is.null(status) || !status$is_active) return(NULL)
+#' One line per commitment that is currently running.
+#'
+#' @return A character vector, empty when nothing is running or no log is given.
+format_commitment_lines <- function(goal, checkin_log, local_time) {
+  if (is.null(checkin_log)) return(character())
 
-  sprintf("Block: %d of %d %ss done, %d missed. Still on for: %s",
-          status$finished_periods, status$total_periods, goal$period,
-          status$missed_periods, status$best_achievable)
+  running <- Filter(function(status) status$is_active,
+                    evaluate_commitments(goal, checkin_log, local_time))
+  vapply(running, format_commitment_line, character(1), period = goal$period)
+}
+
+#' Standing of one commitment: periods behind it, periods short, what is left.
+format_commitment_line <- function(status, period) {
+  outlook <- if (status$is_lost) "Gone, now" else "Still on for"
+
+  sprintf("%s: %d of %d %ss in, %d short. %s: %s",
+          status$label, status$finished_periods, status$total_periods, period,
+          status$shortfall_periods, outlook, status$best_achievable)
 }

@@ -1,4 +1,4 @@
-#' Tests for the pure scheduling, quota, formatting and storage logic.
+#' Tests for the pure scheduling, session, formatting and storage logic.
 #'
 #' Run with: Rscript tests/test_logic.R
 #' Deliberately dependency-free so it runs anywhere R does, and touches no
@@ -31,35 +31,77 @@ expect_error <- function(description, expression) {
 denver <- function(text) as.POSIXlt(text, tz = "America/Denver")
 
 monday <- denver("2026-08-17 17:30:00")     # first day of ISO week 2026-W34
+wednesday <- denver("2026-08-19 17:30:00")
 thursday <- denver("2026-08-20 17:30:00")
+saturday <- denver("2026-08-22 09:30:00")
 sunday <- denver("2026-08-23 17:30:00")
 
+earbuds_commitment <- list(
+  id = "earbuds", label = "Earbuds run",
+  window = list(kind = "range", from = "2026-08-17", to = "2026-12-06"),
+  min_sessions = 3,
+  tiers = list(list(max_shortfalls = 0, outcome = "Buy the $100 earbuds")),
+  otherwise = "No earbuds"
+)
+
+baking_commitment <- list(
+  id = "baking", label = "This month",
+  window = list(kind = "month"),
+  min_sessions = 4,
+  tiers = list(
+    list(max_shortfalls = 0, outcome = "Wife bakes whatever you want"),
+    list(max_shortfalls = 1, outcome = "Something from the bakery")
+  ),
+  otherwise = "Nothing baked this month"
+)
+
+# Four sessions, each anchored to its own weekday: the live boxing shape.
 boxing <- list(
   id = "boxing",
   title = "Get better and more consistent at boxing",
   period = "week",
   schedule = "quota",
+  starts = "2026-08-17",
   requirements = list(
-    list(id = "short", label = "20-30 min session", sessions_per_period = 3L,
+    list(id = "mon", label = "Monday club session", sessions_per_period = 1L,
+         on_day = "Mon", remind_at = "17:00",
+         coping_plan = "do the full 2 hours at home",
+         implementation_intention = list(when = "6-8pm",
+                                         where = "the boxing club")),
+    list(id = "wed", label = "Wednesday 30 min", sessions_per_period = 1L,
+         on_day = "Wed", remind_at = "16:45",
+         implementation_intention = list(when = "immediately after work",
+                                         where = "the office gym")),
+    list(id = "fri", label = "Friday 30 min", sessions_per_period = 1L,
+         on_day = "Fri", remind_at = "16:45"),
+    list(id = "sat", label = "Saturday morning session",
+         sessions_per_period = 1L, on_day = "Sat", remind_at = "07:30")
+  ),
+  obstacle = "an unexpected task takes the slot",
+  coping_plan = "do 20 minutes at home instead",
+  missed_notice_at = "21:30",
+  missed_session_consequence = "put your son back to sleep after every wake-up",
+  commitments = list(earbuds_commitment, baking_commitment)
+)
+
+# Sessions free to land on any day, which take the goal-level nudge instead.
+running <- list(
+  id = "running",
+  title = "Run more",
+  period = "week",
+  schedule = "quota",
+  requirements = list(
+    list(id = "short", label = "20-30 min run", sessions_per_period = 3L,
          implementation_intention = list(when = "after lunch",
                                          where = "the office gym")),
-    list(id = "long", label = "2 hour session", sessions_per_period = 1L,
-         by_day = "Wed", coping_plan = "do the full 2 hours at home",
-         implementation_intention = list(when = "6-8pm",
-                                         where = "the boxing club"))
+    list(id = "long", label = "long run", sessions_per_period = 1L,
+         by_day = "Wed", coping_plan = "run the full hour on the treadmill",
+         implementation_intention = list(when = "6-8pm", where = "the canal"))
   ),
   obstacle = "an unexpected task takes the slot",
   coping_plan = "do 20 minutes at home instead",
   nudge = list(at = "17:00", cadence = "risk_only", kickoff_on = "Mon"),
-  block = list(
-    periods = 8L, starts = "2026-08-17",
-    tiers = list(
-      list(max_missed = 0, outcome = "Buy the $100 earphones"),
-      list(max_missed = 1, outcome = "Buy the $60 earphones"),
-      list(max_missed = 3, outcome = "Buy the $30 earphones")
-    ),
-    otherwise = "Take all Seamus night shifts for one week"
-  )
+  commitments = list(earbuds_commitment)
 )
 
 #' Build a check-in log from compact "requirement@date" specifications.
@@ -79,12 +121,24 @@ checkin_log_of <- function(..., goal_id = "boxing", key = "2026-W34") {
   )
 }
 
+#' Plan reminders for a single goal.
+plan_for <- function(goal, local_time, sent_keys = character(),
+                     checkin_log = checkin_log_of()) {
+  plan_reminders(list(timezone = "America/Denver", goals = list(goal)),
+                 local_time, sent_keys, checkin_log)
+}
+
 cat("Time handling\n")
 check("local hour", monday$hour == 17)
 check("minutes since midnight", minutes_since_midnight(monday) == 1050)
 check("parses HH:MM", parse_time_of_day("07:15") == 435)
 expect_error("rejects 24:00", parse_time_of_day("24:00"))
 expect_error("rejects malformed time", parse_time_of_day("7:5"))
+
+cat("Date parsing\n")
+check("parses an ISO date", parse_date("2026-08-17", "d") == as.Date("2026-08-17"))
+expect_error("rejects a non-date", parse_date("next Tuesday", "d"))
+expect_error("rejects an impossible date", parse_date("2026-02-31", "d"))
 
 cat("Period keys\n")
 check("daily key", period_key("day", monday) == "2026-08-17")
@@ -102,71 +156,85 @@ check("day period always one", days_left_in_period("day", thursday) == 1)
 check("august leaves twelve from the 20th",
       days_left_in_period("month", thursday) == 12)
 
-cat("Quota counting\n")
+cat("Session counting\n")
 empty_counts <- session_counts(checkin_log_of(), "boxing", "2026-W34")
 check("empty log counts nothing", length(empty_counts) == 0)
 
-logged <- checkin_log_of("short@2026-08-17", "short@2026-08-18",
-                         "long@2026-08-19")
+logged <- checkin_log_of("mon@2026-08-17", "wed@2026-08-19")
 counts <- session_counts(logged, "boxing", "2026-W34")
-check("counts short sessions", counts[["short"]] == 2)
-check("counts long sessions", counts[["long"]] == 1)
+check("counts the monday session", counts[["mon"]] == 1)
+check("counts the wednesday session", counts[["wed"]] == 1)
 
-repeated <- checkin_log_of("short@2026-08-17", "short@2026-08-17")
+repeated <- checkin_log_of("mon@2026-08-17", "mon@2026-08-17")
 check("two taps on one day count once",
-      session_counts(repeated, "boxing", "2026-W34")[["short"]] == 1)
+      session_counts(repeated, "boxing", "2026-W34")[["mon"]] == 1)
 
 check("other periods are excluded",
       length(session_counts(logged, "boxing", "2026-W35")) == 0)
 check("other goals are excluded",
       length(session_counts(logged, "running", "2026-W34")) == 0)
 
-cat("Quota progress\n")
+cat("Session totals\n")
+check("four sessions asked for a week", required_sessions(boxing) == 4)
+check("two of four completed", completed_sessions(boxing, counts) == 2)
+check("nothing logged is nothing completed",
+      completed_sessions(boxing, integer()) == 0)
+check("a session logged twice still counts once",
+      completed_sessions(boxing, c(mon = 3L)) == 1)
+
+cat("Requirement progress\n")
 progress <- requirement_progress(boxing, counts)
-check("short remaining", progress[[1]]$remaining == 1)
-check("long satisfied", progress[[2]]$remaining == 0)
-check("total remaining", total_remaining(progress) == 1)
-check("period not yet satisfied", !is_period_satisfied(boxing, counts))
-
-complete <- session_counts(
-  checkin_log_of("short@2026-08-17", "short@2026-08-18", "short@2026-08-19",
-                 "long@2026-08-20"),
-  "boxing", "2026-W34")
-check("period satisfied when all requirements met",
-      is_period_satisfied(boxing, complete))
-
+check("monday satisfied", progress[[1]]$remaining == 0)
+check("friday outstanding", progress[[3]]$remaining == 1)
+check("two sessions still owed", total_remaining(progress) == 2)
 check("overshooting does not go negative",
-      requirement_progress(boxing, c(short = 5L))[[1]]$remaining == 0)
+      requirement_progress(boxing, c(mon = 5L))[[1]]$remaining == 0)
+
+cat("Anchored days\n")
+check("monday has one session", length(sessions_on_day(boxing, monday)) == 1)
+check("monday names the right one",
+      sessions_on_day(boxing, monday)[[1]]$id == "mon")
+check("tuesday has none",
+      length(sessions_on_day(boxing, denver("2026-08-18 17:30:00"))) == 0)
+check("free sessions are never anchored to a day",
+      length(sessions_on_day(running, monday)) == 0)
+
+check("three sessions still to come after monday",
+      remaining_scheduled_sessions(boxing, integer(), monday) == 3)
+check("today's own session is not counted as still to come",
+      remaining_scheduled_sessions(boxing, integer(), wednesday) == 2)
+check("nothing left after saturday",
+      remaining_scheduled_sessions(boxing, integer(), saturday) == 0)
+check("a logged future session is not still to come",
+      remaining_scheduled_sessions(boxing, c(sat = 1L), wednesday) == 1)
 
 cat("Risk detection\n")
 check("four owed with four days left is at risk", is_at_risk(4L, 4L))
 check("three owed with four days left is not", !is_at_risk(3L, 4L))
-check("five owed with four days left is at risk", is_at_risk(5L, 4L))
 check("nothing owed is never at risk", !is_at_risk(0L, 1L))
 
 cat("Per-requirement deadlines\n")
-long_requirement <- boxing$requirements[[2]]
-short_requirement <- boxing$requirements[[1]]
+long_run <- running$requirements[[2]]
+short_run <- running$requirements[[1]]
 check("monday leaves three days to wednesday",
-      days_until_requirement_deadline(long_requirement, monday) == 3)
+      days_until_requirement_deadline(long_run, monday) == 3)
 check("wednesday is the deadline itself",
-      days_until_requirement_deadline(long_requirement,
-                                      denver("2026-08-19 17:30:00")) == 1)
+      days_until_requirement_deadline(long_run, wednesday) == 1)
 check("thursday is past the deadline",
-      days_until_requirement_deadline(long_requirement, thursday) == 0)
+      days_until_requirement_deadline(long_run, thursday) == 0)
 check("no deadline reads as NA",
-      is.na(days_until_requirement_deadline(short_requirement, monday)))
+      is.na(days_until_requirement_deadline(short_run, monday)))
+check("an anchored day acts as the deadline",
+      days_until_requirement_deadline(boxing$requirements[[2]], monday) == 3)
 
-deadline_progress <- requirement_progress(boxing, integer(),
-                                          denver("2026-08-19 17:30:00"))
+deadline_progress <- requirement_progress(running, integer(), wednesday)
 check("outstanding requirement at its deadline is urgent",
       is_requirement_urgent(deadline_progress[[2]]))
 check("requirement without a deadline is never urgent",
       !is_requirement_urgent(deadline_progress[[1]]))
-
-met <- requirement_progress(boxing, c(long = 1L),
-                            denver("2026-08-19 17:30:00"))
-check("a satisfied requirement is not urgent", !is_requirement_urgent(met[[2]]))
+check("a satisfied requirement is not urgent",
+      !is_requirement_urgent(requirement_progress(running, c(long = 1L),
+                                                  wednesday)[[2]]))
 
 cat("Intention formatting\n")
 check("joins when and where",
@@ -177,112 +245,239 @@ check("joins all three parts",
 check("no intention yields nothing", is.null(format_intention(NULL)))
 check("empty intention yields nothing", is.null(format_intention(list())))
 
-cat("Reward block\n")
-keys <- block_period_keys(boxing)
-check("block spans eight weeks", length(keys) == 8)
-check("block starts at W34", keys[1] == "2026-W34")
-check("block ends at W41", keys[8] == "2026-W41")
+cat("Commitment windows\n")
+earbuds_keys <- commitment_period_keys(boxing, earbuds_commitment, monday)
+check("the earbuds run spans sixteen weeks", length(earbuds_keys) == 16)
+check("it starts at W34", earbuds_keys[1] == "2026-W34")
+check("it ends at W49", earbuds_keys[16] == "2026-W49")
 
-status <- evaluate_block(boxing, logged, thursday)
-check("current week is not judged", status$finished_periods == 0)
-check("no misses yet", status$missed_periods == 0)
-check("block is active", status$is_active)
-check("top tier still available",
-      status$best_achievable == "Buy the $100 earphones")
+august_keys <- commitment_period_keys(boxing, baking_commitment, monday)
+check("august holds three weeks once the goal has started",
+      length(august_keys) == 3)
+check("weeks before the start date are dropped", august_keys[1] == "2026-W34")
 
-# Two finished weeks, only the first of which was completed.
+# The week of 31 August runs into September, and must stay an August week all
+# the way through rather than switching month on the 1st.
+straddling <- commitment_period_keys(boxing, baking_commitment,
+                                     denver("2026-09-01 17:30:00"))
+check("a week straddling two months keeps one month",
+      identical(straddling, august_keys))
+
+expect_error("rejects an unknown window kind",
+             commitment_period_keys(boxing,
+                                    modifyList(baking_commitment,
+                                               list(window = list(kind = "x"))),
+                                    monday))
+
+cat("Commitment evaluation\n")
+status <- evaluate_commitment(boxing, earbuds_commitment, logged, thursday)
+check("the current week is not judged", status$finished_periods == 0)
+check("no shortfalls yet", status$shortfall_periods == 0)
+check("the run is active", status$is_active)
+check("the top tier is still available",
+      status$best_achievable == "Buy the $100 earbuds")
+
+# Two finished weeks: the first complete, the second only two sessions.
 two_weeks <- rbind(
-  checkin_log_of("short@2026-08-17", "short@2026-08-18", "short@2026-08-19",
-                 "long@2026-08-20", key = "2026-W34"),
-  checkin_log_of("short@2026-08-24", key = "2026-W35")
+  checkin_log_of("mon@2026-08-17", "wed@2026-08-19", "fri@2026-08-21",
+                 "sat@2026-08-22", key = "2026-W34"),
+  checkin_log_of("mon@2026-08-24", "wed@2026-08-26", key = "2026-W35")
 )
-later <- denver("2026-09-01 17:30:00")
-progressed <- evaluate_block(boxing, two_weeks, later)
-check("two weeks finished", progressed$finished_periods == 2)
-check("one week missed", progressed$missed_periods == 1)
-check("second tier now the ceiling",
-      progressed$best_achievable == "Buy the $60 earphones")
+in_week_36 <- denver("2026-09-01 17:30:00")
 
-check("four misses fall through to the consequence",
-      best_achievable_tier(boxing, 4) ==
-        "Take all Seamus night shifts for one week")
-check("three misses still earn the lowest tier",
-      best_achievable_tier(boxing, 3) == "Buy the $30 earphones")
+earbuds_status <- evaluate_commitment(boxing, earbuds_commitment, two_weeks,
+                                      in_week_36)
+check("two weeks have been judged", earbuds_status$finished_periods == 2)
+check("a week of two sessions falls short of three",
+      earbuds_status$shortfall_periods == 1)
+check("one shortfall loses the earbuds",
+      earbuds_status$best_achievable == "No earbuds")
+check("the earbuds run is reported as lost", earbuds_status$is_lost)
+check("a lost commitment says so rather than promising it",
+      grepl("Gone, now: No earbuds",
+            format_commitment_line(earbuds_status, "week")))
 
-cat("Reminder planning\n")
-definitions <- list(timezone = "America/Denver", goals = list(boxing))
+baking_status <- evaluate_commitment(boxing, baking_commitment, two_weeks,
+                                     in_week_36)
+check("a week of two sessions falls short of four",
+      baking_status$shortfall_periods == 1)
+check("one shortfall drops to the bakery",
+      baking_status$best_achievable == "Something from the bakery")
+check("a commitment with tolerance left is not lost", !baking_status$is_lost)
 
-early <- plan_reminders(definitions, denver("2026-08-17 08:00:00"),
-                        checkin_log = checkin_log_of())
-check("nothing before the nudge time", length(early) == 0)
+check("both commitments are reported",
+      length(evaluate_commitments(boxing, two_weeks, in_week_36)) == 2)
+check("a goal without commitments reports none",
+      length(evaluate_commitments(running["requirements"], two_weeks,
+                                  in_week_36)) == 0)
 
-kickoff <- plan_reminders(definitions, monday, checkin_log = checkin_log_of())
+check("no shortfalls earns the top tier",
+      best_commitment_tier(baking_commitment, 0) ==
+        "Wife bakes whatever you want")
+check("two shortfalls fall through to the consequence",
+      best_commitment_tier(baking_commitment, 2) == "Nothing baked this month")
+
+before_the_start <- evaluate_commitment(boxing, earbuds_commitment, logged,
+                                        denver("2026-08-10 17:30:00"))
+check("a run that has not begun is inactive", !before_the_start$is_active)
+
+cat("Anchored session prompts\n")
+check("nothing before the reminder time",
+      length(plan_for(boxing, denver("2026-08-17 08:00:00"))) == 0)
+check("nothing before the goal starts",
+      length(plan_for(boxing, denver("2026-08-10 17:30:00"))) == 0)
+check("no session anchored to tuesday",
+      length(plan_for(boxing, denver("2026-08-18 17:30:00"))) == 0)
+
+prompt <- plan_for(boxing, monday)
+check("monday prompts once", length(prompt) == 1)
+check("keyed by date and session",
+      prompt[[1]]$reminder_key == "2026-08-17:mon")
+check("names today's session", grepl("Today: Monday club session",
+                                     prompt[[1]]$text))
+check("quotes that session's cue",
+      grepl("6-8pm, the boxing club", prompt[[1]]$text))
+check("reports the week so far",
+      grepl("This week: 0 of 4 sessions", prompt[[1]]$text))
+check("shows the coping plan",
+      grepl("If an unexpected task takes the slot, then do the full 2 hours",
+            prompt[[1]]$text))
+check("states what a skip costs",
+      grepl("Skip it and: put your son back to sleep", prompt[[1]]$text))
+check("shows both commitment standings",
+      grepl("Earbuds run: 0 of 16 weeks in, 0 short", prompt[[1]]$text) &&
+        grepl("This month: 0 of 3 weeks in, 0 short", prompt[[1]]$text))
+check("offers one logging button", length(prompt[[1]]$buttons[[1]]) == 1)
+
+check("no prompt once that session is logged",
+      length(plan_for(boxing, monday,
+                      checkin_log = checkin_log_of("mon@2026-08-17"))) == 0)
+check("no prompt once it has been sent",
+      length(plan_for(boxing, monday,
+                      sent_keys = "boxing|2026-08-17:mon")) == 0)
+
+wednesday_prompt <- plan_for(boxing, wednesday,
+                             checkin_log = checkin_log_of("mon@2026-08-17"))
+check("wednesday prompts its own session",
+      grepl("Today: Wednesday 30 min", wednesday_prompt[[1]]$text))
+check("wednesday quotes its own cue",
+      grepl("immediately after work, the office gym",
+            wednesday_prompt[[1]]$text))
+check("wednesday counts monday already done",
+      grepl("This week: 1 of 4 sessions", wednesday_prompt[[1]]$text))
+check("a session without its own plan falls back to the goal's",
+      grepl("then do 20 minutes at home instead",
+            plan_for(boxing, denver("2026-08-21 17:30:00"))[[1]]$text))
+
+cat("Missed-session notices\n")
+sent_prompt <- "boxing|2026-08-17:mon"
+check("no notice before the cut-off",
+      length(plan_for(boxing, denver("2026-08-17 21:00:00"),
+                      sent_keys = sent_prompt)) == 0)
+
+notice <- plan_for(boxing, denver("2026-08-17 21:45:00"),
+                   sent_keys = sent_prompt)
+check("a missed session is reported that night", length(notice) == 1)
+check("the notice has its own key",
+      notice[[1]]$reminder_key == "2026-08-17:mon:missed")
+check("it names the session", grepl("Missed: Monday club session",
+                                    notice[[1]]$text))
+check("it states tonight's consequence",
+      grepl("Tonight: put your son back to sleep", notice[[1]]$text))
+check("it counts what is still scheduled",
+      grepl("3 session\\(s\\) still scheduled this week", notice[[1]]$text))
+check("it offers a way to log a forgotten session",
+      length(notice[[1]]$buttons[[1]]) == 1)
+
+check("no notice once the session is logged",
+      length(plan_for(boxing, denver("2026-08-17 21:45:00"),
+                      sent_keys = sent_prompt,
+                      checkin_log = checkin_log_of("mon@2026-08-17"))) == 0)
+check("the notice is sent only once",
+      length(plan_for(boxing, denver("2026-08-17 21:45:00"),
+                      sent_keys = c(sent_prompt,
+                                    "boxing|2026-08-17:mon:missed"))) == 0)
+
+quiet_goal <- boxing
+quiet_goal$missed_notice_at <- NULL
+check("no notice when none is configured",
+      length(plan_for(quiet_goal, denver("2026-08-17 21:45:00"),
+                      sent_keys = sent_prompt)) == 0)
+
+late_catchup <- plan_for(boxing, denver("2026-08-17 21:45:00"))
+check("a day missed entirely yields both prompt and notice",
+      length(late_catchup) == 2)
+
+cat("Free-session nudges\n")
+check("nothing before the nudge time",
+      length(plan_for(running, denver("2026-08-17 08:00:00"))) == 0)
+
+kickoff <- plan_for(running, monday)
 check("kickoff fires on monday", length(kickoff) == 1)
 check("kickoff keyed by date", kickoff[[1]]$reminder_key == "2026-08-17")
 check("kickoff names the new period", grepl("New week", kickoff[[1]]$text))
 check("kickoff offers a button per requirement",
       length(kickoff[[1]]$buttons[[1]]) == 2)
+check("kickoff shows the commitment standing",
+      grepl("Still on for: Buy the \\$100 earbuds", kickoff[[1]]$text))
+check("fallback stays hidden while not urgent",
+      !grepl("Fallback for", kickoff[[1]]$text))
 
-quiet <- plan_reminders(definitions, denver("2026-08-18 17:30:00"),
-                        checkin_log = checkin_log_of())
 check("risk_only stays silent when the week is still achievable",
-      length(quiet) == 0)
+      length(plan_for(running, denver("2026-08-18 17:30:00"))) == 0)
 
-risky <- plan_reminders(definitions, thursday, checkin_log = checkin_log_of())
+risky <- plan_for(running, thursday)
 check("nudges once a skip would break the week", length(risky) == 1)
 check("risk wording", grepl("is out of time", risky[[1]]$text))
+check("a passed deadline is reported as such",
+      grepl("\\(was due Wed\\)", risky[[1]]$text))
 
-wednesday <- denver("2026-08-19 17:30:00")
-deadline_plan <- plan_reminders(definitions, wednesday,
-                                checkin_log = checkin_log_of())
+deadline_plan <- plan_for(running, wednesday)
 check("a requirement deadline nudges even when the week is achievable",
       length(deadline_plan) == 1)
 check("deadline wording names the requirement",
-      grepl("2 hour session is out of time", deadline_plan[[1]]$text))
+      grepl("long run is out of time", deadline_plan[[1]]$text))
 check("requirement line shows its deadline",
-      grepl("2 hour session: 0 of 1 \\(by Wed\\)", deadline_plan[[1]]$text))
-check("requirement line quotes its own cue",
-      grepl("6-8pm, the boxing club", deadline_plan[[1]]$text))
-check("short session quotes a different cue",
-      grepl("after lunch, the office gym", deadline_plan[[1]]$text))
+      grepl("long run: 0 of 1 \\(by Wed\\)", deadline_plan[[1]]$text))
 check("coping plan appears when urgent",
       grepl("If an unexpected task takes the slot, then do 20 minutes at home",
             deadline_plan[[1]]$text))
 check("urgent requirement gets its own fallback",
-      grepl("Fallback for 2 hour session: do the full 2 hours at home",
+      grepl("Fallback for long run: run the full hour on the treadmill",
             deadline_plan[[1]]$text))
-check("fallback stays hidden while not urgent",
-      !grepl("Fallback for", kickoff[[1]]$text))
 
-overdue <- plan_reminders(definitions, thursday, checkin_log = checkin_log_of())
-check("passed deadline is reported as such",
-      grepl("\\(was due Wed\\)", overdue[[1]]$text))
+check("no deadline nudge once that session is logged",
+      length(plan_for(running, wednesday,
+                      checkin_log = checkin_log_of("long@2026-08-17",
+                                                   goal_id = "running"))) == 0)
+check("one nudge per day at most",
+      length(plan_for(running, monday, sent_keys = "running|2026-08-17")) == 0)
+check("silent once every session is done",
+      length(plan_for(running, thursday,
+                      checkin_log = checkin_log_of(
+                        "short@2026-08-17", "short@2026-08-18",
+                        "short@2026-08-19", "long@2026-08-20",
+                        goal_id = "running"))) == 0)
 
-done_long <- plan_reminders(definitions, wednesday,
-                            checkin_log = checkin_log_of("long@2026-08-17"))
-check("no deadline nudge once that session is logged", length(done_long) == 0)
+# A goal may mix the two styles, in which case the nudge must speak only for the
+# sessions that still need a day chosen for them.
+mixed <- running
+mixed$requirements <- list(boxing$requirements[[1]], running$requirements[[2]])
+mixed_plans <- plan_for(mixed, monday)
+check("a mixed goal prompts its anchored session and nudges the rest",
+      length(mixed_plans) == 2)
+check("the nudge covers only the free sessions",
+      grepl("long run: 0 of 1", mixed_plans[[2]]$text) &&
+        !grepl("Monday club session", mixed_plans[[2]]$text))
+check("the nudge counts only the free sessions as left",
+      grepl("1 session\\(s\\) left", mixed_plans[[2]]$text))
 
-already <- plan_reminders(definitions, monday, sent_keys = "boxing|2026-08-17",
-                          checkin_log = checkin_log_of())
-check("one message per day at most", length(already) == 0)
-
-satisfied <- plan_reminders(definitions, thursday,
-                            checkin_log = checkin_log_of(
-                              "short@2026-08-17", "short@2026-08-18",
-                              "short@2026-08-19", "long@2026-08-20"))
-check("silent once the quota is met", length(satisfied) == 0)
-
-daily_goal <- boxing
+daily_goal <- running
 daily_goal$nudge$cadence <- "daily"
-daily <- plan_reminders(list(timezone = "America/Denver",
-                             goals = list(daily_goal)),
-                        denver("2026-08-18 17:30:00"),
-                        checkin_log = checkin_log_of())
+daily <- plan_for(daily_goal, denver("2026-08-18 17:30:00"))
 check("daily cadence nudges regardless of risk", length(daily) == 1)
 check("daily nudge reports what is left",
       grepl("4 session\\(s\\) left", daily[[1]]$text))
-check("daily nudge shows block standing",
-      grepl("Still on for: Buy the \\$100 earphones", daily[[1]]$text))
 
 cat("Fixed-schedule goals\n")
 fixed_goal <- list(id = "reading", title = "Read before bed", period = "day",
@@ -291,11 +486,10 @@ fixed_goal <- list(id = "reading", title = "Read before bed", period = "day",
                                                    where = "in bed",
                                                    what = "read ten pages"),
                    stake = "no phone in the bedroom")
-fixed_definitions <- list(timezone = "America/Denver", goals = list(fixed_goal))
 
 check("fixed goal waits for its time",
-      length(plan_reminders(fixed_definitions, denver("2026-08-17 20:00:00"))) == 0)
-fixed_plan <- plan_reminders(fixed_definitions, denver("2026-08-17 21:30:00"))
+      length(plan_for(fixed_goal, denver("2026-08-17 20:00:00"))) == 0)
+fixed_plan <- plan_for(fixed_goal, denver("2026-08-17 21:30:00"))
 check("fixed goal fires after its time", length(fixed_plan) == 1)
 check("fixed goal keyed by period", fixed_plan[[1]]$reminder_key == "2026-08-17")
 check("fixed goal quotes the intention",
@@ -309,7 +503,7 @@ saturday_goal <- list(id = "weekly", title = "Weekly review", period = "week",
 check("weekly fixed goal ignores other days",
       !is_scheduled_today(saturday_goal, monday))
 check("weekly fixed goal fires on its day",
-      is_scheduled_today(saturday_goal, denver("2026-08-22 09:30:00")))
+      is_scheduled_today(saturday_goal, saturday))
 
 cat("Validation\n")
 expect_error("rejects uppercase id",
@@ -327,11 +521,31 @@ expect_error("quota goal needs requirements",
              validate_goal(list(id = "ok", title = "t", period = "week",
                                 schedule = "quota",
                                 nudge = list(at = "17:00"))))
-expect_error("quota goal needs a nudge time",
+expect_error("a free session needs a goal-level nudge time",
              validate_goal(list(id = "ok", title = "t", period = "week",
                                 schedule = "quota",
                                 requirements = list(
                                   list(id = "a", sessions_per_period = 1)))))
+check("a fully anchored goal needs no nudge",
+      is.list(validate_goal(list(id = "ok", title = "t", period = "week",
+                                 schedule = "quota",
+                                 requirements = list(
+                                   list(id = "a", sessions_per_period = 1,
+                                        on_day = "Mon",
+                                        remind_at = "17:00"))))))
+expect_error("an anchored session needs a reminder time",
+             validate_goal(list(id = "ok", title = "t", period = "week",
+                                schedule = "quota",
+                                requirements = list(
+                                  list(id = "a", sessions_per_period = 1,
+                                       on_day = "Mon")))))
+expect_error("rejects an unknown weekday",
+             validate_goal(list(id = "ok", title = "t", period = "week",
+                                schedule = "quota",
+                                requirements = list(
+                                  list(id = "a", sessions_per_period = 1,
+                                       on_day = "Moonday",
+                                       remind_at = "17:00")))))
 expect_error("rejects zero sessions",
              validate_goal(list(id = "ok", title = "t", period = "week",
                                 schedule = "quota",
@@ -345,21 +559,46 @@ expect_error("rejects duplicate requirement ids",
                                 requirements = list(
                                   list(id = "a", sessions_per_period = 1),
                                   list(id = "a", sessions_per_period = 2)))))
+expect_error("rejects an unparseable start date",
+             validate_goal(modifyList(boxing, list(starts = "soon"))))
+expect_error("a missed-session notice needs a consequence",
+             validate_goal(modifyList(
+               boxing, list(missed_session_consequence = NULL))))
 
-descending <- boxing
-descending$block$tiers <- rev(descending$block$tiers)
-expect_error("rejects unsorted tiers", validate_block(descending))
+check("the live boxing shape validates", is.list(validate_goal(boxing)))
 
-no_fallback <- boxing
-no_fallback$block$otherwise <- NULL
-expect_error("block needs an otherwise outcome", validate_block(no_fallback))
+descending <- baking_commitment
+descending$tiers <- rev(descending$tiers)
+expect_error("rejects unsorted tiers", validate_commitment(boxing, descending))
+expect_error("a commitment needs an otherwise outcome",
+             validate_commitment(boxing, modifyList(
+               baking_commitment, list(otherwise = NULL))))
+expect_error("a commitment cannot ask for more than the schedule offers",
+             validate_commitment(boxing, modifyList(
+               baking_commitment, list(min_sessions = 5))))
+expect_error("rejects an unknown window kind",
+             validate_commitment(boxing, modifyList(
+               baking_commitment, list(window = list(kind = "fortnight")))))
+expect_error("a range window must not end before it starts",
+             validate_commitment(boxing, modifyList(
+               earbuds_commitment,
+               list(window = list(kind = "range", from = "2026-08-17",
+                                  to = "2026-08-10")))))
+expect_error("commitments need a quota schedule",
+             validate_goal(list(id = "ok", title = "t", period = "day",
+                                schedule = "fixed", remind_at = "21:00",
+                                commitments = list(earbuds_commitment))))
+repeated_commitments <- boxing
+repeated_commitments$commitments <- list(earbuds_commitment, earbuds_commitment)
+expect_error("rejects duplicate commitment ids",
+             validate_goal(repeated_commitments))
 
 cat("Callback payloads\n")
-payload <- build_callback_payload("boxing", "2026-W34", "short", "session")
+payload <- build_callback_payload("boxing", "2026-W34", "mon", "session")
 parsed <- parse_callback_payload(payload)
 check("payload round-trips goal id", parsed$goal_id == "boxing")
 check("payload round-trips period", parsed$period_key == "2026-W34")
-check("payload round-trips requirement", parsed$requirement_id == "short")
+check("payload round-trips requirement", parsed$requirement_id == "mon")
 check("payload round-trips outcome", parsed$outcome == "session")
 check("payload fits Telegram's limit", nchar(payload, type = "bytes") <= 64)
 
@@ -383,21 +622,21 @@ check("missing log reads as empty",
       nrow(read_log(checkin_path, CHECKIN_LOG_COLUMNS)) == 0)
 
 append_log(checkin_path, CHECKIN_LOG_COLUMNS, list(
-  goal_id = "boxing", period_key = "2026-W34", requirement_id = "short",
+  goal_id = "boxing", period_key = "2026-W34", requirement_id = "mon",
   outcome = "session", local_date = "2026-08-17",
   recorded_at_utc = "2026-08-17T23:30:00Z"
 ))
 append_log(checkin_path, CHECKIN_LOG_COLUMNS, list(
-  goal_id = "boxing", period_key = "2026-W34", requirement_id = "long",
+  goal_id = "boxing", period_key = "2026-W34", requirement_id = "wed",
   outcome = "session", local_date = "2026-08-19",
   recorded_at_utc = "2026-08-19T23:30:00Z"
 ))
 stored <- read_log(checkin_path, CHECKIN_LOG_COLUMNS)
 check("appends accumulate", nrow(stored) == 2)
-check("values survive the round trip", stored$requirement_id[2] == "long")
+check("values survive the round trip", stored$requirement_id[2] == "wed")
 check("column order preserved", identical(names(stored), CHECKIN_LOG_COLUMNS))
 check("stored rows are countable",
-      session_counts(stored, "boxing", "2026-W34")[["short"]] == 1)
+      session_counts(stored, "boxing", "2026-W34")[["mon"]] == 1)
 
 expect_error("rejects incomplete record",
              append_log(checkin_path, CHECKIN_LOG_COLUMNS,
@@ -411,12 +650,12 @@ expect_error("rejects unknown field",
 
 reminder_path <- file.path(scratch, "reminders.csv")
 append_log(reminder_path, REMINDER_LOG_COLUMNS, list(
-  goal_id = "boxing", reminder_key = "2026-08-17",
+  goal_id = "boxing", reminder_key = "2026-08-17:mon",
   sent_at_utc = "2026-08-17T23:30:00Z"
 ))
 check("sent keys are composite",
       already_sent_keys(read_log(reminder_path, REMINDER_LOG_COLUMNS)) ==
-        "boxing|2026-08-17")
+        "boxing|2026-08-17:mon")
 
 offset_path <- file.path(scratch, "offset.txt")
 check("absent offset defaults to zero", read_update_offset(offset_path) == 0)
@@ -431,11 +670,19 @@ check("goals.yml loads", length(loaded$goals) >= 1)
 check("timezone recognised", loaded$timezone %in% OlsonNames())
 real_goal <- loaded$goals[[1]]
 check("boxing goal is a quota goal", real_goal$schedule == "quota")
-check("four sessions a week in total",
-      sum(vapply(real_goal$requirements, `[[`, integer(1),
-                 "sessions_per_period")) == 4)
-check("block runs eight periods", real_goal$block$periods == 8)
-check("block keys resolve", length(block_period_keys(real_goal)) == 8)
+check("four sessions a week in total", required_sessions(real_goal) == 4)
+check("every session is anchored to a weekday",
+      all(vapply(real_goal$requirements,
+                 function(r) !is.null(r$on_day), logical(1))))
+check("the anchored days are mon, wed, fri and sat",
+      identical(vapply(real_goal$requirements, `[[`, character(1), "on_day"),
+                c("Mon", "Wed", "Fri", "Sat")))
+check("two commitments are configured", length(real_goal$commitments) == 2)
+check("the earbuds run resolves to sixteen weeks",
+      length(commitment_period_keys(real_goal, real_goal$commitments[[1]],
+                                    monday)) == 16)
+check("a missed session has a same-night consequence",
+      !is.null(real_goal$missed_session_consequence))
 
 cat("\n")
 if (failures > 0) {

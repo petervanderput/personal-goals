@@ -1,9 +1,10 @@
-#' Quota progress and reward block evaluation.
+#' Session progress and commitment evaluation.
 #'
-#' Pure functions over a check-in log. A quota goal asks for a number of
-#' sessions within a period on any day, so progress is a count rather than a
-#' done/missed flag, and the interesting questions are how many sessions remain
-#' and whether the remaining days can still absorb them.
+#' Pure functions over a check-in log. A goal asks for a number of sessions
+#' within a period. Each session may be anchored to its own weekday and time, or
+#' left free to happen on any day; the interesting questions are what is still
+#' owed, whether the period can still be salvaged, and where that leaves each
+#' standing reward commitment.
 
 #' Count logged sessions per requirement within one period.
 #'
@@ -29,18 +30,37 @@ session_counts <- function(checkin_log, goal_id, key) {
          function(dates) length(unique(dates)), integer(1))
 }
 
-#' Progress against each requirement of a quota goal.
+#' Sessions logged for one requirement, never more than it asks for.
+logged_for_requirement <- function(requirement, counts) {
+  logged <- unname(counts[requirement$id])
+  if (length(logged) == 0 || is.na(logged)) return(0L)
+  min(as.integer(logged), requirement$sessions_per_period)
+}
+
+#' Total sessions completed in a period, across every requirement.
+#'
+#' Capped per requirement, so logging the Monday session twice cannot stand in
+#' for a session that never happened.
+completed_sessions <- function(goal, counts) {
+  sum(vapply(goal$requirements, logged_for_requirement, integer(1),
+             counts = counts))
+}
+
+#' Total sessions a period asks for.
+required_sessions <- function(goal) {
+  sum(vapply(goal$requirements, `[[`, integer(1), "sessions_per_period"))
+}
+
+#' Progress against each requirement.
 #'
 #' @param goal A validated goal.
 #' @param counts Session counts from `session_counts()`.
-#' @param local_time Optional current time. When supplied, requirements carrying
-#'   a `by_day` are annotated with how many days remain until that day.
-#' @return A list of lists with id, label, required, logged, remaining,
-#'   intention and days_until_due.
+#' @param local_time Optional current time. When supplied, requirements are
+#'   annotated with how many days remain until their day or deadline.
+#' @return A list of lists describing each requirement's standing.
 requirement_progress <- function(goal, counts, local_time = NULL) {
   lapply(goal$requirements, function(requirement) {
-    logged <- unname(counts[requirement$id])
-    if (length(logged) == 0 || is.na(logged)) logged <- 0L
+    logged <- logged_for_requirement(requirement, counts)
 
     list(
       id = requirement$id,
@@ -50,6 +70,7 @@ requirement_progress <- function(goal, counts, local_time = NULL) {
       remaining = max(0L, requirement$sessions_per_period - logged),
       intention = requirement$implementation_intention,
       coping_plan = requirement$coping_plan,
+      on_day = requirement$on_day,
       by_day = requirement$by_day,
       days_until_due = if (is.null(local_time)) {
         NA_integer_
@@ -65,16 +86,17 @@ iso_weekday_position <- function(wday) {
   if (wday == 0L) 7L else as.integer(wday)
 }
 
-#' Days remaining until a requirement's own deadline within the current week.
+#' Days remaining until a requirement's day or deadline within the current week.
 #'
-#' Some sessions cannot happen on an arbitrary day, so a requirement may name
-#' the weekday it must be done by. Returns 1 when today is the deadline, a
-#' negative or zero value when it has passed, and NA when none is set.
+#' A requirement anchored with `on_day` is due on that day; one carrying `by_day`
+#' must merely happen by then. Returns 1 when today is the day, a negative or
+#' zero value when it has passed, and NA when neither is set.
 days_until_requirement_deadline <- function(requirement, local_time,
                                            goal_id = "<unknown>") {
-  if (is.null(requirement$by_day)) return(NA_integer_)
+  anchor <- requirement$on_day %||% requirement$by_day
+  if (is.null(anchor)) return(NA_integer_)
 
-  target <- iso_weekday_position(weekday_number(requirement$by_day, goal_id))
+  target <- iso_weekday_position(weekday_number(anchor, goal_id))
   today <- iso_weekday_position(local_time$wday)
   target - today + 1L
 }
@@ -84,14 +106,32 @@ is_requirement_urgent <- function(item) {
   item$remaining > 0L && !is.na(item$days_until_due) && item$days_until_due <= 1L
 }
 
+#' Requirements anchored to today's weekday.
+sessions_on_day <- function(goal, local_time) {
+  Filter(function(requirement) {
+    !is.null(requirement$on_day) &&
+      local_time$wday == weekday_number(requirement$on_day, goal$id)
+  }, goal$requirements)
+}
+
+#' Anchored sessions still to come later this week and not yet logged.
+#'
+#' Used to say whether a weekly target is still reachable after a miss.
+remaining_scheduled_sessions <- function(goal, counts, local_time) {
+  today <- iso_weekday_position(local_time$wday)
+
+  sum(vapply(goal$requirements, function(requirement) {
+    if (is.null(requirement$on_day)) return(0L)
+    position <- iso_weekday_position(weekday_number(requirement$on_day, goal$id))
+    outstanding <- logged_for_requirement(requirement, counts) <
+      requirement$sessions_per_period
+    if (position > today && outstanding) 1L else 0L
+  }, integer(1)))
+}
+
 #' Total sessions still owed across all requirements.
 total_remaining <- function(progress) {
   sum(vapply(progress, `[[`, integer(1), "remaining"))
-}
-
-#' Has every requirement been met for the period?
-is_period_satisfied <- function(goal, counts) {
-  total_remaining(requirement_progress(goal, counts)) == 0L
 }
 
 #' Days remaining in the current period, counting today.
@@ -123,58 +163,110 @@ is_at_risk <- function(remaining, days_left) {
   remaining > 0L && remaining >= days_left
 }
 
-#' Period keys covered by a goal's reward block.
-block_period_keys <- function(goal) {
-  block <- goal$block
-  start <- as.Date(block$starts)
-  if (is.na(start)) {
-    stop("Block of goal '", goal$id, "' has an unparseable start date.",
-         call. = FALSE)
-  }
+#' Period keys covered by a commitment's window.
+#'
+#' Keys earlier than the goal's start date are dropped, so a commitment that
+#' spans a calendar month does not judge weeks from before the goal existed.
+commitment_period_keys <- function(goal, commitment, local_time) {
+  window <- commitment$window
+  starts <- switch(window$kind,
+    range = seq(parse_date(window$from, "Window start"),
+                parse_date(window$to, "Window end"), by = goal$period),
+    month = period_starts_in_month(local_time),
+    stop("Unsupported commitment window '", window$kind, "'.", call. = FALSE)
+  )
 
-  starts <- seq(start, by = goal$period, length.out = as.integer(block$periods))
-  vapply(starts, function(date) {
-    period_key(goal$period, as.POSIXlt(date, tz = "UTC"))
+  if (!is.null(goal$starts)) {
+    starts <- starts[starts >= parse_date(goal$starts, "Goal start")]
+  }
+  if (length(starts) == 0) return(character())
+
+  # Indexed rather than iterated so the Date class survives into period_key().
+  vapply(seq_along(starts), function(index) {
+    period_key(goal$period, as.POSIXlt(starts[index], tz = "UTC"))
   }, character(1))
 }
 
-#' Evaluate progress through a reward block.
+#' Mondays of the calendar month that the current week belongs to.
+#'
+#' A week belongs to the month containing its Monday, which keeps every week in
+#' exactly one month even when it straddles the boundary. The month is taken from
+#' this week's Monday rather than from today, so a week spanning two months does
+#' not switch which month it is judged in halfway through.
+period_starts_in_month <- function(local_time) {
+  this_monday <- as.Date(local_time) -
+    (iso_weekday_position(local_time$wday) - 1L)
+
+  first_of_month <- as.Date(format(this_monday, "%Y-%m-01"))
+  last_of_month <- seq(first_of_month, by = "month", length.out = 2L)[2L] - 1L
+
+  days <- seq(first_of_month, last_of_month, by = "day")
+  days[format(days, "%u") == "1"]
+}
+
+#' Evaluate one reward commitment.
 #'
 #' Only periods that have finished are judged, so a week in progress is never
-#' counted as missed.
+#' counted against you.
 #'
-#' @return A list describing the block, or NULL when the goal has no block.
-evaluate_block <- function(goal, checkin_log, local_time) {
-  if (is.null(goal$block)) return(NULL)
+#' @return A list describing the commitment, or NULL when its window is empty.
+evaluate_commitment <- function(goal, commitment, checkin_log, local_time) {
+  keys <- commitment_period_keys(goal, commitment, local_time)
+  if (length(keys) == 0) return(NULL)
 
-  keys <- block_period_keys(goal)
   current <- period_key(goal$period, local_time)
 
   # These key formats are zero padded, so lexical order matches chronological
   # order and no date parsing is needed to find the finished periods.
   finished <- keys[keys < current]
-  missed <- sum(!vapply(finished, function(key) {
-    is_period_satisfied(goal, session_counts(checkin_log, goal$id, key))
+  shortfalls <- sum(vapply(finished, function(key) {
+    completed <- completed_sessions(goal, session_counts(checkin_log, goal$id,
+                                                        key))
+    completed < commitment$min_sessions
   }, logical(1)))
 
   list(
+    id = commitment$id,
+    label = commitment$label %||% commitment$id,
+    min_sessions = commitment$min_sessions,
     total_periods = length(keys),
     finished_periods = length(finished),
-    remaining_periods = sum(keys >= current),
-    missed_periods = missed,
+    shortfall_periods = shortfalls,
     is_active = current >= keys[1] && current <= keys[length(keys)],
     is_complete = current > keys[length(keys)],
-    best_achievable = best_achievable_tier(goal, missed)
+    is_lost = is_commitment_lost(commitment, shortfalls),
+    best_achievable = best_commitment_tier(commitment, shortfalls)
   )
 }
 
-#' The best outcome still reachable given the misses so far.
+#' Evaluate every commitment attached to a goal.
+evaluate_commitments <- function(goal, checkin_log, local_time) {
+  if (length(goal$commitments) == 0) return(list())
+
+  evaluated <- lapply(goal$commitments, function(commitment) {
+    evaluate_commitment(goal, commitment, checkin_log, local_time)
+  })
+  Filter(Negate(is.null), evaluated)
+}
+
+#' The best outcome still reachable given the shortfalls so far.
 #'
 #' Tiers are validated as ascending, so the first tier that still admits the
-#' current miss count is the best one available.
-best_achievable_tier <- function(goal, missed) {
-  for (tier in goal$block$tiers) {
-    if (missed <= as.numeric(tier$max_missed)) return(tier$outcome)
+#' current shortfall count is the best one available.
+best_commitment_tier <- function(commitment, shortfalls) {
+  for (tier in commitment$tiers) {
+    if (shortfalls <= as.numeric(tier$max_shortfalls)) return(tier$outcome)
   }
-  goal$block$otherwise
+  commitment$otherwise
+}
+
+#' Have the shortfalls put every tier out of reach?
+#'
+#' Distinguishes a reward still worth chasing from one already gone, which the
+#' outcome text alone cannot express.
+is_commitment_lost <- function(commitment, shortfalls) {
+  tolerances <- vapply(commitment$tiers, function(tier) {
+    as.numeric(tier$max_shortfalls)
+  }, numeric(1))
+  shortfalls > max(tolerances)
 }

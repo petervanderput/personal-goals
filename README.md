@@ -34,7 +34,7 @@ R/config.R                 Credential and dependency validation
 R/telegram.R               Bot API wrapper; all HTTP lives here
 R/callbacks.R              Button payload encoding and decoding
 R/goals.R                  Definition loading, validation, calendar helpers
-R/quota.R                  Session counting, risk, reward block evaluation
+R/quota.R                  Session counting, risk, commitment evaluation
 R/reminders.R              Decides what to say and when (pure)
 R/send_reminders.R         Performs the sends
 R/collect_checkins.R       Polls for button taps and records them
@@ -69,31 +69,51 @@ acknowledged and Telegram will not deliver the same tap twice.
 
 ## Goal schedules
 
-A goal is either anchored to a day or counted across a period.
+A goal is either a single anchored commitment or a set of counted sessions.
 
 `schedule: fixed` fires on a known day at `remind_at` and is checked in once per
 period as done or missed. Weekly, monthly and yearly goals take an anchor day in
 `remind_on`. Fixed cues are the better-evidenced choice for habit formation,
 since an implementation intention needs something to hang on.
 
-`schedule: quota` asks for a number of sessions per period on any day. Progress
-is a count, so reminders report what is left and how many days remain, and the
-buttons log a session per requirement. Under the default `risk_only` cadence a
-message goes out only on the kickoff day, or once the sessions still owed equal
-the days remaining and skipping would make the period impossible. That keeps
-reminders informative rather than habituating. `cadence: daily` nudges every day
-instead.
-
-Sessions are counted as distinct local dates rather than rows, so a repeated tap
-counts once. That also encodes the rule that one session of a given type counts
-once per day.
+`schedule: quota` asks for a number of sessions per period, listed as
+`requirements`. Progress is a count rather than a pass/fail flag, which is what
+lets a reward tolerate an occasional miss while the schedule still names a day
+for every session.
 
 Each requirement carries its own `implementation_intention`, because sessions of
 different kinds happen at different times and places, and the cue is the part
-that drives follow-through. A requirement that cannot happen on an arbitrary day
-can also name a `by_day` weekday; once that day arrives with the session still
-outstanding, a reminder goes out even if the period as a whole is still
-comfortably achievable.
+that drives follow-through.
+
+### Anchored and free sessions
+
+A requirement with `on_day` and `remind_at` is prompted on that weekday at that
+time, with its own cue and its own logging button. `remind_at` is when to
+prompt, which is normally earlier than the session itself; the session time
+belongs in the cue.
+
+A requirement without `on_day` can happen on any day and is covered instead by
+the goal-level `nudge`. Under the default `risk_only` cadence that message goes
+out only on `kickoff_on`, or once the sessions still owed equal the days
+remaining and skipping would make the period impossible. That keeps reminders
+informative rather than habituating; `cadence: daily` nudges every day. A free
+requirement may also name a `by_day` weekday it must happen by, which triggers a
+nudge even when the period as a whole is still comfortably achievable.
+
+A goal can mix both styles. Anchored sessions get their own prompts and the
+nudge speaks only for the rest.
+
+### Missed sessions
+
+When a goal sets `missed_notice_at` and `missed_session_consequence`, any
+anchored session still unlogged at that time gets a notice naming the
+consequence for that night. The notice carries a logging button too, so training
+that went unrecorded can still be claimed.
+
+Sessions are counted as distinct local dates rather than rows, so a repeated tap
+counts once, and counts are capped per requirement. That encodes the rule that
+one session of a given type counts once per day, and stops a double tap standing
+in for a session that never happened.
 
 ## Data model
 
@@ -107,15 +127,33 @@ structure is what makes a reminder effective:
 | `obstacle`, `coping_plan` | Mental contrasting, the WOOP protocol (Oettingen) |
 | `difficulty` | Harder goals outperform easy ones when commitment holds |
 | `intrinsic` | When true, no tangible reward, which would erode intrinsic motivation (Deci et al. 1999) |
-| `block` | Pre-committed outcomes over a run of periods, with loss framing outperforming an equivalent bonus |
+| `commitments` | Pre-committed outcomes over a window of periods |
+| `missed_session_consequence` | An immediate cost, the loss framing that outperforms an equivalent bonus |
 
 Reminder text quotes the implementation intention verbatim, since the if-then
 cue is what carries the behavioural effect rather than the goal title.
 
-A `block` judges only periods that have finished, so a period in progress is
-never counted as missed. Tiers must be listed by ascending `max_missed`, and the
-first tier whose limit still holds is what remains achievable; `otherwise` is
-the outcome when none do.
+### Commitments
+
+A goal can carry several commitments, each judging the same sessions over its
+own window against its own minimum. A period counts as short when it finishes
+below `min_sessions`, so a commitment that allows one missed session a week and
+one that demands all four can run side by side.
+
+| Field | Meaning |
+| --- | --- |
+| `window.kind: range` | A fixed run of periods between `from` and `to` |
+| `window.kind: month` | The calendar month of the current period, judged afresh each month |
+| `min_sessions` | Sessions a period needs to avoid counting as short |
+| `tiers` | Ascending `max_shortfalls` with the `outcome` each still earns |
+| `otherwise` | The outcome once every tier is out of reach |
+
+Only periods that have finished are judged, so a period in progress is never
+counted against you, and periods before the goal's `starts` date are ignored
+entirely. The first tier whose tolerance still holds is what remains achievable;
+once none do, reminders say the reward is gone rather than continuing to dangle
+it. A week belongs to the month containing its Monday, so a week straddling two
+months is judged in exactly one of them.
 
 ## Setup
 

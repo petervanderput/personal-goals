@@ -5,8 +5,10 @@
 #'   fixed  A goal anchored to a known day and time, checked in as done or
 #'          missed once per period. Best evidenced for habit formation, because
 #'          a fixed cue is what an implementation intention hangs on.
-#'   quota  A day-agnostic count of sessions per period. Reminders track what is
-#'          left rather than naming a day.
+#'   quota  A count of sessions per period, listed as requirements. A requirement
+#'          may be anchored to its own weekday and time with `on_day`/`at`, which
+#'          gives it a fixed cue while still being counted rather than judged
+#'          pass/fail; one left unanchored can happen on any day.
 #'
 #' Everything here is a pure function of its inputs. The current time is always
 #' passed in rather than read from the clock, so the rules can be tested at any
@@ -17,6 +19,7 @@ library(yaml)
 VALID_PERIODS <- c("day", "week", "month", "year")
 VALID_SCHEDULES <- c("fixed", "quota")
 VALID_CADENCES <- c("risk_only", "daily")
+VALID_WINDOW_KINDS <- c("range", "month")
 WEEKDAY_ABBREVIATIONS <- c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 
 #' Load and validate goal definitions.
@@ -80,7 +83,30 @@ validate_goal <- function(goal) {
     fixed = validate_fixed_goal(goal),
     quota = validate_quota_goal(goal)
   )
-  if (!is.null(goal$block)) validate_block(goal)
+  if (!is.null(goal$starts)) {
+    parse_date(goal$starts, paste0("Start date of goal '", goal$id, "'"))
+  }
+  if (!is.null(goal$missed_notice_at)) {
+    parse_time_of_day(goal$missed_notice_at, goal$id)
+    if (is.null(goal$missed_session_consequence)) {
+      stop("Goal '", goal$id, "' sets missed_notice_at but no ",
+           "missed_session_consequence to report.", call. = FALSE)
+    }
+  }
+
+  if (length(goal$commitments) > 0) {
+    # Commitments are judged on session counts, which only a quota goal has.
+    if (goal$schedule != "quota") {
+      stop("Goal '", goal$id, "' has commitments, which need schedule 'quota'.",
+           call. = FALSE)
+    }
+    for (commitment in goal$commitments) validate_commitment(goal, commitment)
+
+    commitment_ids <- vapply(goal$commitments, `[[`, character(1), "id")
+    if (anyDuplicated(commitment_ids) > 0) {
+      stop("Goal '", goal$id, "' has duplicate commitment ids.", call. = FALSE)
+    }
+  }
 
   goal
 }
@@ -134,6 +160,17 @@ validate_quota_goal <- function(goal) {
     if (!is.null(requirement$by_day)) {
       weekday_number(requirement$by_day, goal$id)
     }
+    # An anchored session happens on a known day, and therefore needs a time of
+    # day for its reminder to fire at. That time is when to prompt, which is
+    # usually earlier than the session itself.
+    if (!is.null(requirement$on_day)) {
+      weekday_number(requirement$on_day, goal$id)
+      if (is.null(requirement$remind_at)) {
+        stop("Requirement '", requirement$id, "' of goal '", goal$id,
+             "' sets on_day and must also set remind_at.", call. = FALSE)
+      }
+      parse_time_of_day(requirement$remind_at, goal$id)
+    }
     requirement
   })
 
@@ -142,9 +179,23 @@ validate_quota_goal <- function(goal) {
     stop("Goal '", goal$id, "' has duplicate requirement ids.", call. = FALSE)
   }
 
-  nudge <- goal$nudge %||% list()
+  # Every anchored session brings its own reminder time, so a goal-level nudge is
+  # only needed when some session can land on any day.
+  has_free_sessions <- any(vapply(goal$requirements, function(requirement) {
+    is.null(requirement$on_day)
+  }, logical(1)))
+
+  if (is.null(goal$nudge)) {
+    if (has_free_sessions) {
+      stop("Goal '", goal$id, "' has sessions that are not anchored to a day, ",
+           "so it must set nudge.at.", call. = FALSE)
+    }
+    return(goal)
+  }
+
+  nudge <- goal$nudge
   if (is.null(nudge$at)) {
-    stop("Goal '", goal$id, "' has schedule 'quota' and must set nudge.at.",
+    stop("Goal '", goal$id, "' sets a nudge and must give nudge.at.",
          call. = FALSE)
   }
   parse_time_of_day(nudge$at, goal$id)
@@ -155,49 +206,92 @@ validate_quota_goal <- function(goal) {
          "'; expected one of ", paste(VALID_CADENCES, collapse = ", "), ".",
          call. = FALSE)
   }
-  if (!is.null(nudge$kickoff_on) &&
-      !nudge$kickoff_on %in% WEEKDAY_ABBREVIATIONS) {
-    stop("Goal '", goal$id, "' has nudge.kickoff_on '", nudge$kickoff_on,
-         "'; expected one of ", paste(WEEKDAY_ABBREVIATIONS, collapse = ", "),
-         ".", call. = FALSE)
+  if (!is.null(nudge$kickoff_on)) {
+    weekday_number(nudge$kickoff_on, goal$id)
   }
   goal$nudge <- nudge
 
   goal
 }
 
-#' Validate a reward block: a fixed run of periods with outcome tiers.
-validate_block <- function(goal) {
-  block <- goal$block
-  absent <- setdiff(c("periods", "starts", "tiers"), names(block))
+#' Validate one reward commitment.
+#'
+#' A commitment judges a window of periods against a minimum number of sessions
+#' and awards the best tier whose tolerance for short periods still holds.
+validate_commitment <- function(goal, commitment) {
+  absent <- setdiff(c("id", "window", "min_sessions", "tiers", "otherwise"),
+                    names(commitment))
   if (length(absent) > 0) {
-    stop("Block of goal '", goal$id, "' is missing: ",
+    stop("A commitment of goal '", goal$id, "' is missing: ",
          paste(absent, collapse = ", "), call. = FALSE)
   }
-  if (!is.numeric(block$periods) || block$periods < 1) {
-    stop("Block of goal '", goal$id, "' needs periods to be a positive number.",
-         call. = FALSE)
+  validate_identifier(commitment$id, "Commitment id")
+  validate_commitment_window(goal, commitment)
+
+  minimum <- commitment$min_sessions
+  if (!is.numeric(minimum) || length(minimum) != 1L || minimum < 1) {
+    stop("Commitment '", commitment$id, "' of goal '", goal$id,
+         "' needs min_sessions to be a positive number.", call. = FALSE)
   }
-  if (is.null(block$otherwise)) {
-    stop("Block of goal '", goal$id, "' must set `otherwise`, the outcome when ",
-         "no tier is met.", call. = FALSE)
+  # A minimum above what the schedule offers could never be met, which would
+  # quietly guarantee failure rather than motivate anything.
+  if (minimum > required_sessions(goal)) {
+    stop("Commitment '", commitment$id, "' of goal '", goal$id, "' asks for ",
+         minimum, " sessions per ", goal$period, " but the schedule only has ",
+         required_sessions(goal), ".", call. = FALSE)
   }
 
-  thresholds <- vapply(block$tiers, function(tier) {
-    if (is.null(tier$max_missed) || is.null(tier$outcome)) {
-      stop("Every tier of goal '", goal$id,
-           "' needs max_missed and outcome.", call. = FALSE)
+  thresholds <- vapply(commitment$tiers, function(tier) {
+    if (is.null(tier$max_shortfalls) || is.null(tier$outcome)) {
+      stop("Every tier of commitment '", commitment$id, "' of goal '", goal$id,
+           "' needs max_shortfalls and outcome.", call. = FALSE)
     }
-    as.numeric(tier$max_missed)
+    as.numeric(tier$max_shortfalls)
   }, numeric(1))
 
   # Tiers are matched in order, so an unsorted list would award a lower tier
   # than earned.
-  if (any(diff(thresholds) <= 0)) {
-    stop("Tiers of goal '", goal$id,
-         "' must be listed by ascending max_missed.", call. = FALSE)
+  if (length(thresholds) > 1L && any(diff(thresholds) <= 0)) {
+    stop("Tiers of commitment '", commitment$id, "' of goal '", goal$id,
+         "' must be listed by ascending max_shortfalls.", call. = FALSE)
   }
   invisible(TRUE)
+}
+
+#' Validate the window a commitment is judged over.
+validate_commitment_window <- function(goal, commitment) {
+  window <- commitment$window
+  if (!is.list(window) || is.null(window$kind)) {
+    stop("Commitment '", commitment$id, "' of goal '", goal$id,
+         "' needs a window with a kind.", call. = FALSE)
+  }
+  if (!window$kind %in% VALID_WINDOW_KINDS) {
+    stop("Commitment '", commitment$id, "' of goal '", goal$id,
+         "' has window kind '", window$kind, "'; expected one of ",
+         paste(VALID_WINDOW_KINDS, collapse = ", "), ".", call. = FALSE)
+  }
+  if (window$kind == "range") {
+    label <- paste0("Window of commitment '", commitment$id, "'")
+    from <- parse_date(window$from, paste(label, "from"))
+    to <- parse_date(window$to, paste(label, "to"))
+    if (to < from) {
+      stop(label, " ends before it starts.", call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+#' Parse a YYYY-MM-DD date, refusing anything else.
+#'
+#' An explicit format is given because `as.Date()` throws on unrecognised input
+#' rather than returning NA, which would bypass this check with a cryptic error.
+parse_date <- function(value, label) {
+  parsed <- suppressWarnings(as.Date(as.character(value), format = "%Y-%m-%d"))
+  if (length(parsed) != 1L || is.na(parsed)) {
+    stop(label, " '", value %||% "<null>",
+         "' must be a date in YYYY-MM-DD form.", call. = FALSE)
+  }
+  parsed
 }
 
 #' Convert an "HH:MM" string to minutes after local midnight.

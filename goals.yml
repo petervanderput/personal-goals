@@ -7,13 +7,16 @@
 #   - implementation_intention: an if-then cue of when, where and what, the
 #     strongest single predictor of follow-through (Gollwitzer & Sheeran 2006)
 #   - obstacle and coping_plan: mental contrasting, i.e. the WOOP protocol
-#   - block tiers: pre-committed outcomes, with loss framing outperforming an
+#   - commitment tiers: pre-committed outcomes, with the immediate
+#     missed_session_consequence carrying the loss framing that outperforms an
 #     equivalent bonus
 #   - intrinsic: when true, no tangible reward is attached, since rewarding
 #     already-enjoyable activity erodes intrinsic motivation (Deci et al. 1999)
 #
-# schedule: quota  counts sessions across the period on any day
-# schedule: fixed  anchors a goal to a known day and time (needs remind_at)
+# schedule: fixed  anchors a whole goal to one day and time (needs remind_at)
+# schedule: quota  counts sessions across the period. A requirement with
+#                  on_day/remind_at is prompted on that weekday; one without is
+#                  covered by the goal-level nudge and can happen any day.
 
 timezone: America/Denver
 
@@ -23,50 +26,86 @@ goals:
     outcome: "Train four times a week, every week"
     period: week
     schedule: quota
+    starts: 2026-08-17
     difficulty: 3
     intrinsic: false
 
-    # Each session type has its own cue, because they happen at different times
-    # and places. The cue is the part that drives follow-through, so it is
-    # attached per requirement rather than to the goal as a whole.
+    # Four named sessions, each anchored to its own day, time and place. The cue
+    # lives on the session rather than the goal because that specificity is what
+    # drives follow-through. remind_at is when to prompt, deliberately ahead of
+    # the session itself; the session time is stated in the cue.
     requirements:
-      - id: short
-        label: "20-30 min session"
-        sessions_per_period: 3
-        implementation_intention:
-          when: "after lunch, or as soon as I get home from work"
-          where: "the office gym or at home"
-      - id: long
-        label: "2 hour session"
+      - id: mon
+        label: "Monday club session, 2 hours"
         sessions_per_period: 1
-        by_day: Wed          # it is a club session early in the week, so it
-        implementation_intention:   # cannot be pushed to the weekend
+        on_day: Mon
+        remind_at: "17:00"
+        implementation_intention:
           when: "6-8pm"
           where: "the boxing club"
-        # Shown only when this session is down to its last day, because the
-        # general plan below would wrongly shrink a 2 hour session to 20 minutes.
+        # This session's fallback is its own, because the goal-level plan would
+        # wrongly shrink a 2 hour session to 20 minutes.
         coping_plan: "do the full 2 hours at home instead of going to the club"
+      - id: wed
+        label: "Wednesday 30 min"
+        sessions_per_period: 1
+        on_day: Wed
+        remind_at: "16:45"
+        implementation_intention:
+          when: "immediately after work"
+          where: "the office gym or at home"
+      - id: fri
+        label: "Friday 30 min"
+        sessions_per_period: 1
+        on_day: Fri
+        remind_at: "16:45"
+        implementation_intention:
+          when: "immediately after work"
+          where: "the office gym or at home"
+      - id: sat
+        label: "Saturday morning session"
+        sessions_per_period: 1
+        on_day: Sat
+        remind_at: "07:30"
+        implementation_intention:
+          when: "around 8am"
+          where: "at home"
 
     # Shrinking a session beats cancelling it, so the response to lost time is a
     # smaller session rather than a skipped one.
-    obstacle: "looking after your kid or an unexpected task takes the slot"
+    obstacle: "looking after your son or an unexpected task takes the slot"
     coping_plan: "do the 20 minute minimum at home rather than skipping"
 
-    nudge:
-      at: "17:00"
-      cadence: risk_only   # only on the kickoff day, or once a skip would
-      kickoff_on: Mon      # make the week impossible
+    # Checked late enough that a session done that evening has been logged, and
+    # early enough that the consequence still applies to the night ahead.
+    missed_notice_at: "21:30"
+    missed_session_consequence: >-
+      put your son back to sleep after every wake-up
 
-    # Eight weeks, judged on how many weeks fell short. Tiers must ascend, and
-    # the first one whose limit still holds is what remains achievable.
-    block:
-      periods: 8
-      starts: 2026-08-17
-      tiers:
-        - max_missed: 0
-          outcome: "Buy the $100 earphones"
-        - max_missed: 1
-          outcome: "Buy the $60 earphones"
-        - max_missed: 3
-          outcome: "Buy the $30 earphones"
-      otherwise: "Take all Seamus night shifts for one week"
+    # Two independent stakes over the same sessions. A week counts as short when
+    # it finishes below min_sessions; tiers ascend, and the first whose tolerance
+    # still holds is what remains achievable.
+    commitments:
+      - id: earbuds
+        label: "Earbuds run"
+        window:
+          kind: range
+          from: 2026-08-17
+          to: 2026-12-06     # last full week before Monday 7 December
+        min_sessions: 3      # one of the four may be missed each week
+        tiers:
+          - max_shortfalls: 0
+            outcome: "Buy the $100 earbuds"
+        otherwise: "No earbuds"
+
+      - id: baking
+        label: "This month"
+        window:
+          kind: month        # a week belongs to the month its Monday falls in
+        min_sessions: 4      # every session, every week
+        tiers:
+          - max_shortfalls: 0
+            outcome: "Wife bakes whatever you want"
+          - max_shortfalls: 1
+            outcome: "Something from the bakery"
+        otherwise: "Nothing baked this month"
